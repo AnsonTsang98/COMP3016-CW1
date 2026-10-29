@@ -23,7 +23,8 @@ struct Vec2 {
 struct PlayerData {
 	PlayerState state;
 	float playerSpeed = 75;
-	int vision = 150;
+	int playerVision = 4;
+	float playerFov = 45.0f;
 	PlayerData() {
 		state = PlayerState::idle;
 	}

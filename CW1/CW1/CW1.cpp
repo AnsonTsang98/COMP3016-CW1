@@ -12,6 +12,14 @@ const size_t LAYER_IDK_CHARACTERS = 1;
 const int MAP_ROWS = 5;
 const int MAP_COLS = 50;
 const int TILE_SIZE = 32;
+const int FOG_ROWS = MAP_ROWS * TILE_SIZE;
+const int FOG_COLS = MAP_COLS * TILE_SIZE;
+
+enum class FogState {
+    Unexplored,
+    Explored,
+    Visible
+};
 
 struct SDLState {
     SDL_Window* window;
@@ -27,7 +35,7 @@ struct Resources {
     const int ANIM_PLAYER_WALK = 1;
     vector<Animation> playerAnims;
     vector<SDL_Texture*> textures;
-    SDL_Texture* texIdle,* texWalk;
+    SDL_Texture* texIdle,* texWalk,* texGround,* texWall;
 
     SDL_Texture* loadTexture(SDL_Renderer* renderer, const string& texPath) {
         //load image
@@ -40,7 +48,7 @@ struct Resources {
         return tex;
     }
 
-    Resources():texIdle(nullptr), texWalk(nullptr) {}
+    Resources():texIdle(nullptr), texWalk(nullptr), texGround(nullptr), texWall(nullptr){}
 
     void load(SDLState& state) {
         playerAnims.resize(5);
@@ -51,6 +59,8 @@ struct Resources {
 
         texIdle = loadTexture(state.renderer, "Assets/playerIdle.bmp");
         texWalk = loadTexture(state.renderer, "Assets/playerWalk.bmp");
+        texGround = loadTexture(state.renderer, "Assets/ground2.bmp");
+        texWall = loadTexture(state.renderer, "Assets/wall1.bmp");
     }
 
     void unload() {
@@ -60,10 +70,15 @@ struct Resources {
 };
 
 struct GameState {
+    // Setup Fog Grids
+    vector<vector<FogState>> fogGrid;
+    vector<vector<bool>> wallGrid;
+
     array<vector<GameObject>,2> layers;
     int playerIndex;
+    float playerAngle;
 
-    GameState() :playerIndex(0) {}
+    GameState() :playerIndex(0), playerAngle(0), fogGrid(FOG_ROWS, vector<FogState>(FOG_COLS, FogState::Unexplored)), wallGrid(FOG_ROWS, vector<bool>(FOG_COLS, 0)) {}
 };
 
 bool initSDL(SDLState&);
@@ -71,6 +86,8 @@ void cleanSDL(SDLState&);
 void drawObject(const SDLState&, GameState&, GameObject&, float);
 void update(const SDLState&, GameState&, Resources&, GameObject&, float);
 void createTiles(SDLState&, GameState&, const Resources&);
+void CastVisionRay(int, int, int, int, GameState&);
+void fogHandle(GameState&,const GameObject&);
 
 
 int main() {
@@ -81,7 +98,6 @@ int main() {
     state.logH = 320;
     if (!initSDL(state)) { return 1; }
 
-    //SDL_Texture* fog = SDL_CreateTexture(state.renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, state.width, state.height); //fog.v1
     //load game assets
     Resources res;
     res.load(state);
@@ -90,17 +106,6 @@ int main() {
     GameState gs;
     createTiles(state, gs, res);
     uint64_t prevTime = SDL_GetTicks();
-
-    /*//blend mode setup for fog.v1
-    SDL_BlendMode carveBlendMode = SDL_ComposeCustomBlendMode(
-        SDL_BLENDFACTOR_ZERO,                // Src Color
-        SDL_BLENDFACTOR_ONE,                 // Dst Color
-        SDL_BLENDOPERATION_ADD,              // Color Operation
-        SDL_BLENDFACTOR_ZERO,                // Src Alpha
-        SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, // Dst Alpha (Reduces alpha where to draw)
-        SDL_BLENDOPERATION_ADD               // Alpha Operation
-    );
-    SDL_SetTextureBlendMode(fog, SDL_BLENDMODE_BLEND);*/
 
     //gameloop
     bool running = true;
@@ -140,27 +145,22 @@ int main() {
                 drawObject(state, gs, obj, deltaTime);
             }
 
-        /*//fog.v1
-        SDL_SetRenderTarget(state.renderer, fog);
-        SDL_SetRenderDrawColor(state.renderer, 10, 10, 15, 240);
-        SDL_RenderClear(state.renderer);
+        //fog
+        SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
 
-        //carve vision
-        SDL_SetRenderDrawBlendMode(state.renderer, carveBlendMode);
-        SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+        for (int y = 0; y < FOG_ROWS; ++y)
+            for (int x = 0; x < FOG_COLS; ++x){
+                SDL_FRect fogRect = { (float)x, (float)y, 1.0f, 1.0f };
 
-        for (int w = 0; w < vision * 2; w++) {
-            for (int h = 0; h < vision * 2; h++) {
-                int dx = vision - w;
-                int dy = vision - h;
-                if ((dx * dx + dy * dy) <= (vision * vision)) {
-                    SDL_RenderPoint(state.renderer, playerX + dx, playerY + dy);
+                if (gs.fogGrid[y][x] == FogState::Unexplored) {
+                    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255); // Shroud
+                    SDL_RenderFillRect(state.renderer, &fogRect);
+                }
+                else if (gs.fogGrid[y][x] == FogState::Explored) {
+                    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 165); // Fog
+                    SDL_RenderFillRect(state.renderer, &fogRect);
                 }
             }
-        }
-
-        SDL_SetRenderTarget(state.renderer, nullptr);
-        SDL_RenderTexture(state.renderer, fog, nullptr, nullptr);*/
 
         //render
         SDL_RenderPresent(state.renderer);
@@ -222,6 +222,23 @@ void drawObject(const SDLState& state, GameState& gs, GameObject& obj, float del
 
 void update(const SDLState& state, GameState& gs, Resources& res, GameObject& obj, float deltaTime) {
     if (obj.type == ObjectType::player) {
+        //handle player vision
+        float rawMouseX, rawMouseY, mouseX, mouseY;
+        SDL_GetMouseState(&rawMouseX, &rawMouseY);
+        SDL_RenderCoordinatesFromWindow(state.renderer, rawMouseX, rawMouseY, &mouseX, &mouseY);
+
+        float cx = TILE_SIZE / 2 + obj.position.x;
+        float cy = TILE_SIZE / 2 + obj.position.y;
+        float dx = mouseX - cx;
+        float dy = mouseY - cy;
+
+        // Update player angle dynamically if the mouse has moved away from the player center
+        if (abs(dx) > 1.0f || abs(dy) > 1.0f) {
+            float mouseAngleRad = atan2(dy, dx);
+            gs.playerAngle = mouseAngleRad * 180 / 3.14159265;
+        }
+
+        fogHandle(gs, obj);
         //handle player movement
         float moveX, moveY = moveX = 0;
 
@@ -273,16 +290,19 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
 
     short map[MAP_ROWS][MAP_COLS] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 4, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 1, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 1, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
-
-    for(int r = 0; r < MAP_ROWS; r++)
-        for(int c = 0; c < MAP_COLS; c++)
+    for (int r = 0; r < MAP_ROWS; r++)
+        for (int c = 0; c < MAP_COLS; c++)
             switch (map[r][c]) {
                 case 1: {//Ground
+                    GameObject ground;
+                    ground.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
+                    ground.texture = res.texGround;
+                    gs.layers[LAYER_IDX_LEVEL].push_back(ground);
                     break;
                 }
                 case 2: {//Door
@@ -293,7 +313,7 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                 }
                 case 4: {//Player
                     GameObject player;
-                    player.position = Vec2((float)c * TILE_SIZE, (float)r * TILE_SIZE);
+                    player.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
                     player.type = ObjectType::player;
                     player.data.player = PlayerData();
                     player.texture = res.texIdle;
@@ -303,10 +323,78 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                     break;
                 }
                 case 5: {//Wall
+                    GameObject wall;
+                    wall.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
+                    wall.texture = res.texWall;
+                    gs.layers[LAYER_IDX_LEVEL].push_back(wall);
+                    for (int i = 0; i < TILE_SIZE; i++)
+                        for (int k = 0; k < TILE_SIZE; k++)
+                            gs.wallGrid[r * TILE_SIZE + i][c * TILE_SIZE + k] = 1;
                     break;
                 }
                 case 6: {//Items
                     break;
                 }
             }
+}
+
+// Bresenham's Line Trace for Line of Sight
+void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs) {
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+    int cx = x0;
+    int cy = y0;
+    int wv = 8;
+
+    while (true) {
+        if (cx < 0 || cx >= FOG_COLS || cy < 0 || cy >= FOG_ROWS) break;
+        gs.fogGrid[cy][cx] = FogState::Visible;
+        if (wv <= 0) break;
+        if (gs.wallGrid[cy][cx]) wv--;
+        if (cx == x1 && cy == y1) break;
+
+        int e2 = 2 * err;
+        if (e2 > -dy && e2 < dx) {
+            cx += sx;
+            err -= dy;
+        }
+        else {
+            if (e2 > -dy) {
+                err -= dy;
+                cx += sx;
+            }
+            if (e2 < dx) {
+                err += dx;
+                cy += sy;
+            }
+        }
+    }
+}
+
+void fogHandle(GameState& gs,const GameObject& obj) {
+    //reset fog state
+    for (int y = 0; y < FOG_ROWS; y++)
+        for (int x = 0; x < FOG_COLS; x++)
+            if (gs.fogGrid[y][x] == FogState::Visible)
+                gs.fogGrid[y][x] = FogState::Explored;
+
+    //cast rays in limited sector
+    int playerVision = obj.data.player.playerVision * TILE_SIZE / 2;
+    int steps = obj.data.player.playerFov * 2;
+    int cx = TILE_SIZE / 2 + obj.position.x;
+    int cy = TILE_SIZE / 2 + obj.position.y;
+
+    for (int i = 0; i < steps; i++) {
+        float angle = obj.data.player.playerFov * i / steps + gs.playerAngle - (obj.data.player.playerFov / 2);
+        float rad = angle * 3.14159265 / 180;
+
+        int targetX = cos(rad) * playerVision + cx;
+        int targetY = sin(rad) * playerVision + cy;
+        CastVisionRay(cx, cy, targetX, targetY, gs);
+    }
+
+    gs.fogGrid[cy][cx] = FogState::Visible;
 }
