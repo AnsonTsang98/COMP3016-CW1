@@ -1,11 +1,13 @@
 ﻿  CW1.cpp
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(388,44): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(388,29): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(417,77): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(480,15): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(481,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(482,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(486,19): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(488,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(489,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(386,39): warning C4244: 'argument': conversion from 'float' to 'Sint32', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(387,39): warning C4244: 'argument': conversion from 'float' to 'Sint32', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(560,48): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(560,33): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(589,81): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(657,15): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(658,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(659,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(663,19): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(665,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(666,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
   CW1.vcxproj -> C:\Users\atsang\source\repos\CW1\x64\Debug\CW1.exe

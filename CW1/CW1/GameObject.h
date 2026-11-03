@@ -10,9 +10,14 @@ enum class PlayerState {
 	idle, walking
 };
 
-enum class ObjectType {
-	player, level, enemy
+enum class BulletState {
+	moving, colliding, inactive
 };
+
+enum class ObjectType {
+	player, level, enemy, bullet
+};
+
 
 struct Vec2 {
 	float x, y;
@@ -26,7 +31,7 @@ struct Vec2 {
 	friend Vec2 operator*( const float f, Vec2 v1) {
 		return v1 * f;
 	}
-	friend Vec2 operator*(Vec2 v1, Vec2 v2) {
+	friend Vec2 operator*(Vec2 v1, const Vec2 v2) {
 		v1.x *= v2.x;
 		v1.y *= v2.y;
 		return v1;
@@ -40,14 +45,19 @@ struct Vec2 {
 		*this = *this + v2;
 		return *this;
 	}
+	Vec2& operator*=(const float f) {
+		*this = *this * f;
+		return *this;
+	}
 };
 
 struct PlayerData {
 	PlayerState state;
+	Timer weaponTimer;
 	float playerSpeed = 75;
 	int playerVision = 4;
 	float playerFov = 45.0f;
-	PlayerData() {
+	PlayerData() : weaponTimer(0.1f){
 		state = PlayerState::idle;
 	}
 };
@@ -62,10 +72,17 @@ struct EnemyData {
 	}
 };
 
+struct BulletData {
+	BulletState state;
+	BulletData() : state(BulletState::moving){
+	}
+};
+
 union ObjectData {
 	PlayerData player;
 	LevelData level;
 	EnemyData enemy;
+	BulletData bullet;
 };
 
 struct GameObject {
