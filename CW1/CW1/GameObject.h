@@ -18,6 +18,28 @@ struct Vec2 {
 	float x, y;
 	Vec2() :x(0), y(0) {}
 	Vec2(float posX, float posY){x = posX; y = posY; }
+	friend Vec2 operator*(Vec2 v1, const float f) {
+		v1.x *= f;
+		v1.y *= f;
+		return v1;
+	}
+	friend Vec2 operator*( const float f, Vec2 v1) {
+		return v1 * f;
+	}
+	friend Vec2 operator*(Vec2 v1, Vec2 v2) {
+		v1.x *= v2.x;
+		v1.y *= v2.y;
+		return v1;
+	}
+	friend Vec2 operator+(Vec2 v1,const Vec2& v2) {
+		v1.x += v2.x;
+		v1.y += v2.y;
+		return v1;
+	}
+	Vec2& operator+=(const Vec2& v2) {
+		*this = *this + v2;
+		return *this;
+	}
 };
 
 struct PlayerData {
@@ -49,17 +71,19 @@ union ObjectData {
 struct GameObject {
 	ObjectType type;
 	ObjectData data;
-	Vec2 position, velocity, acceleration;
-	float direction;
+	Vec2 position, velocity, direction;
+	float maxSpeed, acceleration;
 	vector<Animation> animations;
 	int currentAnimation;
 	SDL_Texture* texture;
+	SDL_FRect collider;
 
-	GameObject() : data{} {
+	GameObject() : data{}, collider{0} {
 		type = ObjectType::level;
 		data.level = LevelData();
-		direction = 1;
-		//position = velocity = acceleration = Vec2();
+		direction.x = direction.y = -1;
+		maxSpeed = acceleration = 0;
+		//position = velocity = Vec2();
 		currentAnimation = -1;
 		texture = nullptr;
 	}

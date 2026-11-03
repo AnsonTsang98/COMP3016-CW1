@@ -1,4 +1,6 @@
 //#include "SDL3/SDL_main.h"
+#define NDEBUG 
+#include "assert.h"
 #include "GameObject.h"
 
 #include <iostream>
@@ -78,7 +80,8 @@ struct GameState {
     int playerIndex;
     float playerAngle;
 
-    GameState() :playerIndex(0), playerAngle(0), fogGrid(FOG_ROWS, vector<FogState>(FOG_COLS, FogState::Unexplored)), wallGrid(FOG_ROWS, vector<bool>(FOG_COLS, 0)) {}
+    GameState() :playerIndex(-1), playerAngle(0), fogGrid(FOG_ROWS, vector<FogState>(FOG_COLS, FogState::Unexplored)), wallGrid(FOG_ROWS, vector<bool>(FOG_COLS, 0)) {}
+    GameObject& player() { return layers[LAYER_IDK_CHARACTERS][playerIndex]; }
 };
 
 bool initSDL(SDLState&);
@@ -88,6 +91,8 @@ void update(const SDLState&, GameState&, Resources&, GameObject&, float);
 void createTiles(SDLState&, GameState&, const Resources&);
 void CastVisionRay(int, int, int, int, GameState&);
 void fogHandle(GameState&,const GameObject&);
+void collisionResponse(const SDLState&, GameState&, Resources&, const SDL_FRect&, const SDL_FRect&, const SDL_FRect&, GameObject&, GameObject&, float);
+void checkCollision(const SDLState&, GameState&, Resources&, GameObject&, GameObject&, float);
 
 
 int main() {
@@ -235,46 +240,127 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
         // Update player angle dynamically if the mouse has moved away from the player center
         if (abs(dx) > 1.0f || abs(dy) > 1.0f) {
             float mouseAngleRad = atan2(dy, dx);
-            gs.playerAngle = mouseAngleRad * 180 / 3.14159265;
+            gs.playerAngle = mouseAngleRad * 180 / 3.14159265f;
         }
 
         fogHandle(gs, obj);
         //handle player movement
-        float moveX, moveY = moveX = 0;
+        Vec2 direction;
 
         if (state.keys[SDL_SCANCODE_A]) {
-            moveX -= obj.data.player.playerSpeed;
+            direction.x -= 1;
         }
         if (state.keys[SDL_SCANCODE_D]) {
-            moveX += obj.data.player.playerSpeed;
+            direction.x += 1;
         }
         if (state.keys[SDL_SCANCODE_W]) {
-            moveY -= obj.data.player.playerSpeed;
+            direction.y -= 1;
         }
         if (state.keys[SDL_SCANCODE_S]) {
-            moveY += obj.data.player.playerSpeed;
+            direction.y += 1;
         }
-        obj.position.x += moveX * deltaTime;
-        obj.position.y += moveY * deltaTime;
+        if (direction.x) {
+            obj.direction.x = direction.x;
+        }
+        else if (obj.velocity.x) {
+            const float factor = (obj.velocity.x > 0) ? -1.5f : 1.5f;
+            float amount = factor * obj.acceleration * deltaTime;
+            if (abs(obj.velocity.x) < abs(amount)) {
+                obj.velocity.x = 0;
+            }
+            else {
+                obj.velocity.x += amount;
+            }
+        }
+        if (direction.y) {
+            obj.direction.y = direction.y;
+        }
+        else if (obj.velocity.y) {
+            const float factor = (obj.velocity.y > 0) ? -1.5f : 1.5f;
+            float amount = factor * obj.acceleration * deltaTime;
+            if (abs(obj.velocity.y) < abs(amount)) {
+                obj.velocity.y = 0;
+            }
+            else {
+                obj.velocity.y += amount;
+            }
+        }
 
         switch (obj.data.player.state) {
             case PlayerState::idle: {
-               if (moveX != 0 || moveY != 0) {
+                if (direction.x != 0 || direction.y != 0) {
                     obj.data.player.state = PlayerState::walking;
-                   obj.texture = res.texWalk;
-                   //obj.currentAnimation = res.ANIM_PLAYER_WALK;
                 }
+                obj.texture = res.texIdle;
+                //obj.currentAnimation = res.ANIM_PLAYER_IDLE;
                 break;
             }
             case PlayerState::walking: {
-                if (moveX == 0 && moveY == 0) {
+                if (direction.x == 0 && direction.y == 0) {
                     obj.data.player.state = PlayerState::idle;
-                    obj.texture = res.texIdle;
-                    //obj.currentAnimation = res.ANIM_PLAYER_IDLE;
+                }
+                obj.texture = res.texWalk;
+                //obj.currentAnimation = res.ANIM_PLAYER_WALK;
+                break;
+            }
+        }
+
+        obj.velocity += direction * obj.acceleration * deltaTime;
+        if (abs(obj.velocity.x) > obj.maxSpeed)
+            obj.velocity.x = direction.x * obj.maxSpeed;
+        if (abs(obj.velocity.y) > obj.maxSpeed)
+            obj.velocity.y = direction.y * obj.maxSpeed;
+    }
+    obj.position += obj.velocity * deltaTime;
+
+    for (auto& layer : gs.layers) {
+        for (GameObject& objB : layer) {
+            if (&obj != &objB) {
+                checkCollision(state,gs,res,obj,objB,deltaTime);
+            }
+        }
+    }
+}
+
+void collisionResponse(const SDLState& state, GameState& gs, Resources& res, const SDL_FRect& rectA, const SDL_FRect& rectB, const SDL_FRect& rectC,
+    GameObject& objA, GameObject& objB, float deltaTime) {
+    if (objA.type == ObjectType::player) {
+        switch (objB.type) {
+            case ObjectType::level: {
+                if (rectC.w < rectC.h) {
+                    //horizontal collision
+                    objA.position.x += (objA.velocity.x > 0) ? -rectC.w : rectC.w;
+                    objA.velocity.x = 0;
+                }
+                else {
+                    //vertical collision
+                    objA.position.y += (objA.velocity.y > 0) ? -rectC.h : rectC.h;
+                    objA.velocity.y = 0;
                 }
                 break;
             }
         }
+    }
+}
+
+void checkCollision(const SDLState& state, GameState& gs, Resources& res, GameObject& a, GameObject& b, float deltaTime) {
+    SDL_FRect rectA{
+        rectA.x = a.position.x + a.collider.x,
+        rectA.y = a.position.y + a.collider.y,
+        rectA.w = a.collider.w,
+        rectA.h = a.collider.h
+    };
+    SDL_FRect rectB{
+        rectB.x = b.position.x + b.collider.x,
+        rectB.y = b.position.y + b.collider.x,
+        rectB.w = b.collider.w,
+        rectB.h = b.collider.h
+    };
+    SDL_FRect rectC{ 0 };
+
+    if (SDL_GetRectIntersectionFloat(&rectA,&rectB,&rectC)) {
+        //intersection
+        collisionResponse(state,gs,res,rectA,rectB,rectC,a,b,deltaTime);
     }
 }
 
@@ -295,13 +381,21 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
         0, 0, 1, 1, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
+
+    const auto createObject = [&state](int r, int c, SDL_Texture* tex, ObjectType type) {
+        GameObject o;
+        o.type = type;
+        o.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
+        o.texture = tex;
+        o.collider = { 0,0,TILE_SIZE,TILE_SIZE };
+        return o;
+    };
+
     for (int r = 0; r < MAP_ROWS; r++)
         for (int c = 0; c < MAP_COLS; c++)
             switch (map[r][c]) {
                 case 1: {//Ground
-                    GameObject ground;
-                    ground.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
-                    ground.texture = res.texGround;
+                    GameObject ground = createObject(r, c, res.texGround, ObjectType::level);
                     gs.layers[LAYER_IDX_LEVEL].push_back(ground);
                     break;
                 }
@@ -312,20 +406,19 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                     break;
                 }
                 case 4: {//Player
-                    GameObject player;
-                    player.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
-                    player.type = ObjectType::player;
+                    GameObject player = createObject(r,c,res.texIdle,ObjectType::player);
                     player.data.player = PlayerData();
-                    player.texture = res.texIdle;
                     player.animations = res.playerAnims;
+                    player.acceleration = 300;
+                    player.maxSpeed = 100;
+                    player.collider = {11,6,10,26};
                     //player.currentAnimation = res.ANIM_PLAYER_IDLE;
                     gs.layers[LAYER_IDK_CHARACTERS].push_back(player);
+                    gs.playerIndex = gs.layers[LAYER_IDK_CHARACTERS].size() - 1;
                     break;
                 }
                 case 5: {//Wall
-                    GameObject wall;
-                    wall.position = Vec2(c * TILE_SIZE, r * TILE_SIZE);
-                    wall.texture = res.texWall;
+                    GameObject wall = createObject(r,c,res.texWall,ObjectType::level);
                     gs.layers[LAYER_IDX_LEVEL].push_back(wall);
                     for (int i = 0; i < TILE_SIZE; i++)
                         for (int k = 0; k < TILE_SIZE; k++)
@@ -336,6 +429,7 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                     break;
                 }
             }
+    assert(gs.playerIndex != -1);
 }
 
 // Bresenham's Line Trace for Line of Sight
@@ -369,7 +463,7 @@ void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs) {
             if (e2 < dx) {
                 err += dx;
                 cy += sy;
-            }
+            }   
         }
     }
 }
