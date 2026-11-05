@@ -18,6 +18,10 @@ enum class ObjectType {
 	player, level, enemy, bullet
 };
 
+enum class EnemyState {
+	idle, roaming, attack, damaged, dead
+};
+
 
 struct Vec2 {
 	float x, y;
@@ -68,7 +72,11 @@ struct LevelData {
 };
 
 struct EnemyData {
-	EnemyData() {
+	EnemyState state;
+	Timer damagedTimer, idleTimer, roamingTimer, attackTimer, cooldownTimer;
+	int healthPoints;
+	EnemyData() : state(EnemyState::idle), damagedTimer(0.5f), idleTimer(5.0f), roamingTimer(2.3f), attackTimer(4.0f), cooldownTimer(0.5f) {
+		healthPoints = 100;
 	}
 };
 
@@ -91,11 +99,13 @@ struct GameObject {
 	Vec2 position, velocity, direction;
 	float maxSpeed, acceleration;
 	vector<Animation> animations;
-	int currentAnimation;
+	int currentAnimation, spriteFrame;
 	SDL_Texture* texture;
 	SDL_FRect collider;
+	Timer flashTimer;
+	bool shouldFlash;
 
-	GameObject() : data{}, collider{0} {
+	GameObject() : type(ObjectType::level), data{}, collider{ 0 }, flashTimer(0.05f) {
 		type = ObjectType::level;
 		data.level = LevelData();
 		direction.x = direction.y = -1;
@@ -103,5 +113,7 @@ struct GameObject {
 		//position = velocity = Vec2();
 		currentAnimation = -1;
 		texture = nullptr;
+		shouldFlash = false;
+		spriteFrame = 1;
 	}
 };
