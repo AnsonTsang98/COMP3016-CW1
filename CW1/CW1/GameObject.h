@@ -15,7 +15,7 @@ enum class BulletState {
 };
 
 enum class ObjectType {
-	player, level, enemy, bullet, item
+	player, level, enemy, bullet, item, exit
 };
 
 enum class EnemyState {

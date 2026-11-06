@@ -3,6 +3,11 @@
 #include "assert.h"
 #include "GameObject.h"
 
+#include "MainMenu.h"
+#include "UpgradeData.h"
+#include "UpgradeMenu.h"
+#include "AudioSystem.h"
+
 #include <iostream>
 #include <array>
 #include <string>
@@ -11,16 +16,21 @@ using namespace std;
 
 const size_t LAYER_IDX_LEVEL = 0;
 const size_t LAYER_IDK_CHARACTERS = 1;
-const int MAP_ROWS = 10;
+const int MAP_ROWS = 30;
 const int MAP_COLS = 50;
 const int TILE_SIZE = 32;
 const int FOG_ROWS = MAP_ROWS * TILE_SIZE;
 const int FOG_COLS = MAP_COLS * TILE_SIZE;
+AudioSystem audio;
 
 enum class FogState {
     Unexplored,
     Explored,
     Visible
+};
+
+enum class RunState {
+    playing, escaped, dead
 };
 
 struct SDLState {
@@ -70,7 +80,8 @@ struct Resources {
     vector<SDL_Texture*> textures;
     SDL_Texture* texPPistol,* texPRifle,* texPShotgun,* texPSMG,* texPDead,* texGround,* texWall,* texBullet,* texBulletHit,
         * texNormalWalk,* texNormalChase,* texNormalDie,* texRageWalk,* texRageChase,* texRageDie,
-        * texSpeedUp,* texMedKit,* texFlashlight,* texPistol,* texRifle,* texShotgun,* texSMG,* texBleed;
+        * texSpeedUp,* texMedKit,* texFlashlight,* texPistol,* texRifle,* texShotgun,* texSMG,* texBleed,
+        * texMenuBg, * texMenuTitle, * texMenuButtons, * texUpTitle, * texUpRows, * texUpIcons, * texUpPips, * texUpPlus, * texExit;
 
     SDL_Texture* loadTexture(SDL_Renderer* renderer, const string& texPath) {
         //create surface from path
@@ -91,7 +102,9 @@ struct Resources {
 
     Resources():texPPistol(nullptr), texPRifle(nullptr), texPShotgun(nullptr), texPSMG(nullptr), texPDead(nullptr), texGround(nullptr), texWall(nullptr), texBullet(nullptr),
         texBulletHit(nullptr), texNormalWalk(nullptr), texNormalChase(nullptr), texNormalDie(nullptr), texRageWalk(nullptr), texRageChase(nullptr), texRageDie(nullptr),
-        texSpeedUp(nullptr), texMedKit(nullptr), texFlashlight(nullptr),  texPistol(nullptr),  texRifle(nullptr),  texShotgun(nullptr),  texSMG(nullptr), texBleed(nullptr) {}
+        texSpeedUp(nullptr), texMedKit(nullptr), texFlashlight(nullptr),  texPistol(nullptr),  texRifle(nullptr),  texShotgun(nullptr),  texSMG(nullptr), texBleed(nullptr),
+        texMenuBg(nullptr), texMenuTitle(nullptr), texMenuButtons(nullptr), texUpTitle(nullptr), texUpRows(nullptr), texUpIcons(nullptr), texUpPips(nullptr), texUpPlus(nullptr),
+        texExit(nullptr) {}
 
     void load(SDLState& state) {
         //player anims
@@ -131,8 +144,8 @@ struct Resources {
         texPShotgun = loadTexture(state.renderer, "Assets/main_shotgun_walk.bmp");
         texPSMG = loadTexture(state.renderer, "Assets/main_smg_walk.bmp");
         texPDead = loadTexture(state.renderer, "Assets/main_dead_anim.bmp");
-        texGround = loadTexture(state.renderer, "Assets/ground2.bmp");
-        texWall = loadTexture(state.renderer, "Assets/wall1.bmp");
+        texGround = loadTexture(state.renderer, "Assets/ground3.bmp");
+        texWall = loadTexture(state.renderer, "Assets/wall2.bmp");
         texBullet = loadTexture(state.renderer, "Assets/bullet.bmp");
         texBulletHit = loadTexture(state.renderer, "Assets/bulletHit.bmp");
         texNormalWalk = loadTexture(state.renderer, "Assets/zombie_idle_walk.bmp");
@@ -150,6 +163,15 @@ struct Resources {
         texSMG = loadTexture(state.renderer, "Assets/smg_anim.bmp");
         texBleed = loadTexture(state.renderer, "Assets/bleed_anim_sheet.bmp");
         SDL_SetTextureBlendMode(texBleed, SDL_BLENDMODE_BLEND);
+        texMenuBg = loadTexture(state.renderer, "Assets/menu_bg.bmp");
+        texMenuTitle = loadTexture(state.renderer, "Assets/menu_title.bmp");
+        texMenuButtons = loadTexture(state.renderer, "Assets/menu_buttons.bmp");
+        texUpTitle = loadTexture(state.renderer, "Assets/upgrade_title.bmp");
+        texUpRows = loadTexture(state.renderer, "Assets/upgrade_rows.bmp");
+        texUpIcons = loadTexture(state.renderer, "Assets/upgrade_icons.bmp");
+        texUpPips = loadTexture(state.renderer, "Assets/upgrade_pips.bmp");
+        texUpPlus = loadTexture(state.renderer, "Assets/upgrade_plus.bmp");
+        texExit = loadTexture(state.renderer, "Assets/exit_anim.bmp");
     }
 
     void unload() {
@@ -171,6 +193,15 @@ struct GameState {
     int playerIndex;
     float playerAngle;
     bool debugmode,pre,use;
+    UpgradeData* upgrades = nullptr;
+    RunState runState = RunState::playing;
+    float endTimer = 0;         //time since the run ended (banner time before going back to the menu)
+    bool nearExit = false;      //player is standing on the exit this frame
+    vector<int> visibleCells;           //cells that are Visible this frame (used in step 2)
+    vector<SDL_FPoint> visiblePoints;   //the same cells as screen points for the fog mask (step 2)
+    vector<Uint8> fogPixels;            //pixel buffer for the fog overlay
+
+    
 
     GameState(const SDLState& state) :playerIndex(-1), playerAngle(0), fogGrid(FOG_ROWS, vector<FogState>(FOG_COLS, FogState::Unexplored)),
         wallGrid(FOG_ROWS, vector<bool>(FOG_COLS, 0)), mapViewport(SDL_FRect{0,0,static_cast<float>(state.logW),static_cast<float>(state.logH)}),
@@ -190,7 +221,11 @@ struct FogSystem {
     int width, height;
     SDL_Texture* entityBuffer,* fogMask;
 
-    FogSystem(const SDLState& state) :entityBuffer(nullptr), fogMask(nullptr) {
+    int fogW, fogH;
+    SDL_Texture* fogOverlay;
+
+
+    FogSystem(const SDLState& state) :entityBuffer(nullptr), fogMask(nullptr), fogOverlay(nullptr), fogW(0), fogH(0) {
         width = state.logW;
         height = state.logH;
 
@@ -215,11 +250,20 @@ struct FogSystem {
         //setup blend mode
         SDL_SetTextureBlendMode(fogMask, fogBlendMode);
         SDL_SetTextureBlendMode(entityBuffer, SDL_BLENDMODE_BLEND);
+
+        //fog overlay: only the part of the map that is on screen (+2 so a fractional camera position is covered)
+        fogW = state.logW + 2;
+        fogH = state.logH + 2;
+        fogOverlay = SDL_CreateTexture(state.renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, fogW, fogH);
+        SDL_SetTextureBlendMode(fogOverlay, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(fogOverlay, SDL_SCALEMODE_NEAREST);
+
     }
 
     void unload() {
         SDL_DestroyTexture(entityBuffer);
         SDL_DestroyTexture(fogMask);
+        SDL_DestroyTexture(fogOverlay);
     }
 };
 
@@ -232,6 +276,125 @@ void CastVisionRay(int, int, int, int, GameState&, const SDLState&);
 void fogHandle(GameState&, const SDLState&, FogSystem);
 void collisionResponse(const SDLState&, GameState&, Resources&, const SDL_FRect&, const SDL_FRect&, const SDL_FRect&, GameObject&, GameObject&, float);
 void checkCollision(const SDLState&, GameState&, Resources&, GameObject&, GameObject&, float);
+void restartGame(SDLState&, GameState&, Resources&, UpgradeData&);
+void drawText(const SDLState&, const char*, float, float, float, Uint8, Uint8, Uint8);
+void updateZombieSounds(GameState&, float);
+void drawFog(const SDLState&, GameState&, FogSystem&);
+
+//absolute values, so it is safe to call every time START is pressed (also when resuming a paused game)
+void applyUpgrades(GameState& gs, const UpgradeData& up) {
+    PlayerData& pd = gs.playerdata();
+
+    float oldMax = pd.playerMaxHP;
+    pd.playerMaxHP = up.maxHp();                       // base 100 + 20 per level
+    pd.playerHP += pd.playerMaxHP - oldMax;            // new max HP also gives that HP now
+    if (pd.playerHP > pd.playerMaxHP)
+        pd.playerHP = pd.playerMaxHP;
+
+    pd.playerSpeed = 100.0f * up.speedMult();          // 100 = your base speed
+    gs.player().maxSpeed = pd.playerSpeed;
+    pd.playerVision = 4 + up.visionBonus();            // 4 = your base vision (int)
+
+    pd.weaponTimer.setLength((pd.gun->cooldown + pd.extraCooldown - up.cooldownMult()));
+}
+
+//throw the finished run away and build a fresh one (map, enemies, items, fog, player).
+    //Only the UpgradeData is kept, because it lives outside the GameState.
+void restartGame(SDLState& state, GameState& gs, Resources& res, UpgradeData& upgrades) {
+    gs.unload();                    //delete the guns and zombies of the old run
+    gs = GameState(state);          //brand new GameState
+    gs.upgrades = &upgrades;
+    createTiles(state, gs, res);
+}
+
+//debug font text, scaled and centred on cx (logical coordinates)
+void drawText(const SDLState& state, const char* text, float cx, float y, float scale, Uint8 r, Uint8 g, Uint8 b) {
+    float w = (float)SDL_strlen(text) * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE * scale;
+    SDL_SetRenderScale(state.renderer, scale, scale);
+    SDL_SetRenderDrawColor(state.renderer, r, g, b, 255);
+    SDL_RenderDebugText(state.renderer, (cx - w / 2) / scale, y / scale, text);
+    SDL_SetRenderScale(state.renderer, 1.0f, 1.0f);
+}
+
+void updateZombieSounds(GameState& gs, float deltaTime) {
+    static float timer = 0.0f;
+    timer -= deltaTime;
+    if (timer > 0.0f || gs.playerdata().state == PlayerState::dead)
+        return;
+
+    const float RANGE = 260.0f;                         //pixels (about 8 tiles)
+    const Vec2 p = gs.player().position;
+    GameObject* nearest = nullptr;
+    float best = RANGE;
+    for (GameObject& o : gs.layers[LAYER_IDK_CHARACTERS]) {
+        if (o.type != ObjectType::enemy || o.data.enemy.state == EnemyState::dead)
+            continue;
+        float dx = o.position.x - p.x;
+        float dy = o.position.y - p.y;
+        float d = sqrtf(dx * dx + dy * dy);
+        if (d < best) {
+            best = d;
+            nearest = &o;
+        }
+    }
+    if (!nearest) {
+        timer = 0.25f;                                  //nobody near: check again soon
+        return;
+    }
+
+    float close = 1.0f - best / RANGE;                  //0 = far .. 1 = touching
+    int id;
+    if (nearest->data.enemy.state == EnemyState::attack)
+        id = SND_SNARL;
+    else if (nearest->data.enemy.z->score != 1)         //rage zombie
+        id = SND_GROWL1 + SDL_rand(2);
+    else
+        id = SND_GROAN1 + SDL_rand(3);
+
+    float volume = 0.2f + 0.8f * close * close;
+    //quieter when the zombie is not in your vision (behind a wall / outside the light)
+    int zx = (int)(nearest->position.x + TILE_SIZE / 2);
+    int zy = (int)(nearest->position.y + TILE_SIZE / 2);
+    bool seen = zx >= 0 && zx < FOG_COLS && zy >= 0 && zy < FOG_ROWS && gs.fogGrid[zy][zx] == FogState::Visible;
+    if (!seen)
+        volume *= 0.6f;
+
+    audio.play(id, volume, 0.9f + 0.2f * SDL_randf());
+    timer = 2.5f + 4.0f * (1.0f - close) + 2.0f * SDL_randf();   //closer = more often
+}
+
+//draw the fog of the visible part of the map with one texture
+void drawFog(const SDLState& state, GameState& gs, FogSystem& fs) {
+    const int vx = (int)floorf(gs.mapViewport.x);
+    const int vy = (int)floorf(gs.mapViewport.y);
+    const int w = fs.fogW;
+    const int h = fs.fogH;
+
+    gs.fogPixels.resize((size_t)w * h * 4);
+    Uint8* px = gs.fogPixels.data();
+    for (int y = 0; y < h; y++) {
+        const int my = vy + y;
+        for (int x = 0; x < w; x++) {
+            const int mx = vx + x;
+            Uint8 a = 0;                                    //outside the map or visible = no fog
+            if (mx >= 0 && mx < FOG_COLS && my >= 0 && my < FOG_ROWS) {
+                FogState f = gs.fogGrid[my][mx];
+                a = (f == FogState::Unexplored) ? 255 : (f == FogState::Explored) ? 165 : 0;
+            }
+            px[0] = 0;
+            px[1] = 0;
+            px[2] = 0;
+            px[3] = a;
+            px += 4;
+        }
+    }
+    SDL_UpdateTexture(fs.fogOverlay, nullptr, gs.fogPixels.data(), w * 4);
+
+    SDL_FRect dst{ vx - gs.mapViewport.x, vy - gs.mapViewport.y, (float)w, (float)h };
+    SDL_RenderTexture(state.renderer, fs.fogOverlay, nullptr, &dst);
+}
+
+
 
 
 int main() {
@@ -247,33 +410,107 @@ int main() {
     Resources res;
     res.load(state);
 
+    //init audio
+    audio.init();                       // false = no audio device, the game still runs
+    audio.setMasterVolume(0.7f);        // 0..1, change to taste
+
+
     //setup game
     GameState gs(state);
     createTiles(state, gs, res);
     uint64_t prevTime = SDL_GetTicks();
     FogSystem fs(state);
 
+    //init menu
+    MainMenu menu;
+    menu.init(res.texMenuBg, res.texMenuTitle, res.texMenuButtons,
+        res.texPRifle, res.texNormalChase, res.texRageChase, state.logW, state.logH);
+
+    //init upgrade
+    UpgradeData upgrades;
+    upgrades.load();                  // "save.json" next to the exe; first launch = defaults, no error
+    gs.upgrades = &upgrades;          // use your GameState variable name
+
+    UpgradeMenu upMenu;
+    upMenu.init(res.texMenuBg, res.texUpTitle, res.texUpRows, res.texUpIcons, res.texUpPips,
+        res.texUpPlus, res.texMenuButtons, state.logW, state.logH);
+    bool inUpgrade = false;
+
     
     bool running = true;
     bool gaming = false;
     while (running) {
+        //main menu
         SDL_Event event{ 0 };
-        while (SDL_PollEvent(&event)) {
-            switch (event.type) {
-            case SDL_EVENT_QUIT: {
-                running = false;
-                break;
+        if (!gaming) {
+            while (SDL_PollEvent(&event)) {
+                switch (event.type) {
+                case SDL_EVENT_QUIT: {
+                    running = false;
+                    break;
+                }
+                case SDL_EVENT_WINDOW_RESIZED: {
+                    state.width = event.window.data1;
+                    state.height = event.window.data2;
+                    break;
+                }
+                }
+
+                if (inUpgrade) {
+                    switch (upMenu.handleEvent(event, state.renderer)) {
+                    case UpgradeAction::bought: {
+                        audio.play(SND_PICKUP, 0.8f);
+                        upgrades.save();                    // saved on every purchase
+                        break;
+                    }
+                    case UpgradeAction::back: {
+                        audio.play(SND_UI_CLICK);
+                        inUpgrade = false;
+                        upgrades.save();
+                        menu.reset();
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
+                else {
+                    switch (menu.handleEvent(event, state.renderer)) {
+                    case MenuAction::start: {
+                        audio.play(SND_UI_CLICK);
+                        applyUpgrades(gs, upgrades);        // function from step 6
+                        gaming = true;
+                        prevTime = SDL_GetTicks();
+                        break;
+                    }
+                    case MenuAction::upgrade: {
+                        audio.play(SND_UI_CLICK);
+                        inUpgrade = true;
+                        upMenu.open(&upgrades);
+                        break;
+                    }
+                    case MenuAction::quit: {
+                        running = false;
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
             }
-            case SDL_EVENT_WINDOW_RESIZED: {
-                state.width = event.window.data1;
-                state.height = event.window.data2;
-                break;
+
+            SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+            SDL_RenderClear(state.renderer);
+            if (inUpgrade) {
+                upMenu.update();
+                upMenu.draw(state.renderer);
             }
+            else {
+                menu.update();
+                menu.draw(state.renderer);
             }
+            SDL_RenderPresent(state.renderer);
         }
-
-
-
         //gameloop
         while (gaming) {
             uint64_t nowTime = SDL_GetTicks();
@@ -294,14 +531,43 @@ int main() {
                 }
             }
 
-            //update all objects
-            for (auto& layer : gs.layers)
-                for (GameObject& obj : layer) {
-                    update(state, gs, res, obj, deltaTime);
+            //the run only ends when the player escapes through the exit (E) or dies
+            if (gs.runState == RunState::playing && gs.playerdata().state == PlayerState::dead)
+                gs.runState = RunState::dead;
+            if (gs.runState != RunState::playing) {
+                gs.endTimer += deltaTime;
+                if (gs.endTimer >= ((gs.runState == RunState::dead) ? 3.0f : 1.5f)) {
+                    upgrades.save();                        //keep the score earned in this run
+                    restartGame(state, gs, res, upgrades);  //everything else restarts
+                    gaming = false;
+                    menu.reset();
+                    prevTime = SDL_GetTicks();
+                    continue;                               //gaming is false, so this leaves the game loop
                 }
+            }
 
-            for (GameObject& bullet : gs.bullets) {
-                update(state, gs, res, bullet, deltaTime);
+            //update all objects (frozen after escaping, but the death animation keeps playing)
+            if (gs.runState != RunState::escaped) {
+                for (auto& layer : gs.layers)
+                    for (GameObject& obj : layer) {
+                        update(state, gs, res, obj, deltaTime);
+                    }
+
+                for (GameObject& bullet : gs.bullets) {
+                    update(state, gs, res, bullet, deltaTime);
+                }
+            }
+
+            //sounds
+            if (gs.runState == RunState::playing) {
+                updateZombieSounds(gs, deltaTime);
+
+                static float heartTimer = 0.0f;
+                heartTimer -= deltaTime;
+                if (heartTimer <= 0.0f && gs.playerdata().playerHP < gs.playerdata().playerMaxHP * 0.3f) {
+                    audio.play(SND_HEARTBEAT, 0.6f);
+                    heartTimer = 0.9f;
+                }
             }
 
             //calculatte viewport
@@ -345,6 +611,10 @@ int main() {
                     static_cast<float>(obj.texture->w),
                     static_cast<float>(obj.texture->h)
                 };
+                //off screen: skip
+                if (dst.x + dst.w < 0 || dst.x > state.logW || dst.y + dst.h < 0 || dst.y > state.logH)
+                    continue;
+
                 SDL_RenderTexture(state.renderer, obj.texture, nullptr, &dst);
             }
 
@@ -376,9 +646,11 @@ int main() {
             }
 
             //fog
+            drawFog(state, gs, fs);
+
             SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
 
-            for (int y = 0; y < FOG_ROWS; y++)
+            /*for (int y = 0; y < FOG_ROWS; y++)
                 for (int x = 0; x < FOG_COLS; x++) {
                     SDL_FRect fogRect = { x - gs.mapViewport.x, y - gs.mapViewport.y, 1.0f, 1.0f };
 
@@ -390,12 +662,33 @@ int main() {
                         SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 165); // Fog
                         SDL_RenderFillRect(state.renderer, &fogRect);
                     }
-                }
+                }*/
+
+
 
             //draw bleeding screen overlay represent player hp
             SDL_SetRenderDrawColor(state.renderer, 255, 0, 0, 128 * screenBleedRatio); // Blood
             SDL_RenderFillRect(state.renderer, &screenDst);
             SDL_RenderTexture(state.renderer, res.texBleed, &screenSrc, &screenDst);
+
+
+            //exit hint and end-of-run banner
+            if (gs.nearExit && gs.runState == RunState::playing)
+                drawText(state, "PRESS E TO ESCAPE", state.logW / 2.0f, state.logH - 40.0f, 1.0f, 90, 230, 120);
+            if (gs.runState != RunState::playing) {
+                SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 120);
+                SDL_RenderFillRect(state.renderer, &screenDst);
+                if (gs.runState == RunState::dead)
+                    drawText(state, "YOU DIED", state.logW / 2.0f, state.logH / 2.0f - 16.0f, 4.0f, 210, 40, 40);
+                else
+                    drawText(state, "ESCAPED!", state.logW / 2.0f, state.logH / 2.0f - 16.0f, 4.0f, 90, 230, 120);
+                char scoreText[48];
+                SDL_snprintf(scoreText, sizeof(scoreText), "SCORE: %d", upgrades.score);
+                drawText(state, scoreText, state.logW / 2.0f, state.logH / 2.0f + 24.0f, 1.0f, 210, 210, 216);
+            }
+
+
 
             //debug use info
             if (gs.debugmode) {
@@ -413,10 +706,12 @@ int main() {
             prevTime = nowTime;
         }
     }
+    upgrades.save();
     //cout<< SDL_GetBasePath() <<endl; // show base path
     gs.unload();
     res.unload();
     fs.unload();
+    audio.unload(); 
     cleanSDL(state);
     return 0;
 }
@@ -425,7 +720,7 @@ int main() {
 bool initSDL(SDLState& state) {
     bool initSuccess = true;
 
-    if (!SDL_Init(SDL_INIT_VIDEO)) { initSuccess = false; }
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) { initSuccess = false; }
 
     //create window
     state.window = SDL_CreateWindow("Escape Anything", state.width, state.height, SDL_WINDOW_RESIZABLE);
@@ -466,9 +761,14 @@ void drawObject(const SDLState& state, GameState& gs, GameObject& obj, float wid
         height
     };
 
+    //off screen: skip (an object that is flashing still finishes its flash timer below)
+    if (!obj.shouldFlash && (dst.x + width < 0 || dst.x > state.logW || dst.y + height < 0 || dst.y > state.logH))
+        return;
+
+
     if (obj.shouldFlash)
         SDL_SetTextureColorModFloat(obj.texture, 5.0f, 1.0f, 1.0f);
-    if (obj.type == ObjectType::level)
+    if (obj.type == ObjectType::level || obj.type == ObjectType::exit)
         SDL_RenderTexture(state.renderer, obj.texture, &src, &dst);
     else if(obj.type == ObjectType::player)
         SDL_RenderTextureRotated(state.renderer, obj.texture, &src, &dst, gs.playerAngle, nullptr, SDL_FLIP_NONE);
@@ -528,6 +828,7 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
         //handle player movement
         Vec2 direction;
         gs.use = false;
+        gs.nearExit = false;
         if (gs.playerdata().state != PlayerState::dead) {
             if (state.keys[SDL_SCANCODE_A])
                 direction.x -= 1;
@@ -581,7 +882,7 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
 
             //caculate the bullet direction
             float d = sqrtf(dx * dx + dy * dy);
-            float variationX, variationY = variationX = gs.playerdata().gun->spread;
+            float variationX, variationY = variationX = gs.playerdata().gun->spread - gs.upgrades->accuracy();
             variationX = SDL_rand(variationX) - variationX / 2;
             variationY = SDL_rand(variationY) - variationY / 2;
             bullet.direction = Vec2((dx + variationX) / d, (dy + variationY) / d);
@@ -609,6 +910,7 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
             if (gs.playerdata().state != PlayerState::dead && weaponTimer.isTimeout()) {
                 weaponTimer.reset();
                 int bullet = gs.playerdata().gun->bullet;
+                audio.play(SND_SHOT_PISTOL + (gs.playerdata().gun->anim - 3), 0.7f, 0.95f + 0.1f * SDL_randf());
                 for (int n = 0; n < bullet; n++)
                     spawnBullet();
             }
@@ -792,13 +1094,28 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
     obj.position += obj.velocity * deltaTime;
 
     //check the Game Object collide with other Game Object or not
-    for (auto& layer : gs.layers) {
+    /*for (auto& layer : gs.layers) {
         for (GameObject& objB : layer) {
             if (&obj != &objB) {
                 checkCollision(state,gs,res,obj,objB,deltaTime);
             }
         }
+    }*/
+    //only moving objects react to collisions (as "objA", walls / items / the exit never do anything)
+    if (obj.type == ObjectType::player || obj.type == ObjectType::enemy || obj.type == ObjectType::bullet) {
+        for (auto& layer : gs.layers) {
+            for (GameObject& objB : layer) {
+                if (&obj == &objB)
+                    continue;
+                //further than 2 tiles away it can not touch us
+                if (fabsf(objB.position.x - obj.position.x) > TILE_SIZE * 2 ||
+                    fabsf(objB.position.y - obj.position.y) > TILE_SIZE * 2)
+                    continue;
+                checkCollision(state, gs, res, obj, objB, deltaTime);
+            }
+        }
     }
+
 }
 
 //use for handle the collision
@@ -846,6 +1163,7 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                     objA.shouldFlash = true;
                     objA.flashTimer.reset();
                     objA.data.player.playerHP -= objB.data.enemy.z->damage;
+                    audio.play(SND_HURT, 0.9f, 0.95f + 0.1f * SDL_randf(), 300);
                     if (gs.playerdata().playerHP <= 0) {
                         gs.playerdata().state = PlayerState::dead;
                         objA.texture = res.texPDead;
@@ -855,10 +1173,21 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                 }
                 break;
             }
+            case ObjectType::exit: {
+                gs.nearExit = true;
+                if (gs.use && gs.runState == RunState::playing) {
+                    gs.runState = RunState::escaped;    //main loop shows the banner, saves and returns to the menu
+                    audio.play(SND_EXIT, 0.9f);
+                    gs.endTimer = 0;
+                    objA.velocity = Vec2(0, 0);
+                }
+                break;
+            }
             case ObjectType::item: {
                 PlayerData& pd = objA.data.player;
                 ItemData& itemdata = objB.data.item;
                 if(gs.use && itemdata.active && !(itemdata.type == ItemType::weapon && !itemdata.gun->pickUpCooldown.isTimeout())){
+                    audio.play((itemdata.type == ItemType::heal) ? SND_HEAL : (itemdata.type == ItemType::weapon) ? SND_SWAP : SND_PICKUP, 0.8f);
                     if (itemdata.type != ItemType::weapon) {
                         itemdata.active = false;
                         objB.collider = { 0,0,0,0 };
@@ -927,7 +1256,7 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                                 }
                             }
                             objB.currentAnimation = pd.gun->anim;
-                            pd.weaponTimer.setLength(pd.extraCooldown + itemdata.gun->cooldown);
+                            pd.weaponTimer.setLength(pd.extraCooldown + itemdata.gun->cooldown - gs.upgrades->cooldownMult());
                             swap(pd.gun,itemdata.gun);
                             break;
                         }
@@ -958,11 +1287,15 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                             objB.flashTimer.reset();
                             enemydata.state = EnemyState::damaged;
                             enemydata.z->hp -= gs.playerdata().gun->damage;
-                            if (enemydata.z->hp <= 0) {
+                            audio.play(SND_HIT, 0.6f, 0.9f + 0.2f * SDL_randf(), 40);
+                            if (enemydata.z->hp <= 0 && enemydata.state != EnemyState::dead) {
                                 enemydata.state = EnemyState::dead;
                                 objB.texture = (objB.data.enemy.z->score == 1)? res.texNormalDie:res.texRageDie;
                                 objB.currentAnimation = res.ANIM_ENEMY_DIE;
                                 objB.velocity = Vec2(0, 0);
+                                objB.collider = { 0,0,0,0 };
+                                gs.upgrades->score += enemydata.z->score;
+                                audio.play(SND_ZOMBIE_DIE, 0.9f);
                             }
                         }
                         else {
@@ -970,7 +1303,8 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                         }
                         break;
                     }
-                    case ObjectType::item: {
+                    case ObjectType::item:
+                    case ObjectType::exit: {
                         passthrough = true;
                         break;
                     }
@@ -988,11 +1322,17 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
     }
     //enemy situation
     else if (objA.type == ObjectType::enemy) {
+        if (objA.data.enemy.state == EnemyState::dead)
+            return; 
         if (objB.type == ObjectType::player) {
             objA.data.enemy.cooldownTimer.reset();
             objA.velocity = Vec2(0, 0);
         }
-        else if(objB.type != ObjectType::item)
+        else if (objB.type == ObjectType::item || objB.type == ObjectType::exit ||
+            (objB.type == ObjectType::enemy && objB.data.enemy.state == EnemyState::dead)) {
+            //zombies walk over items, the exit and dead bodies
+        }
+        else
             genericResponse();
     }
 }
@@ -1022,39 +1362,81 @@ void checkCollision(const SDLState& state, GameState& gs, Resources& res, GameOb
 void createTiles(SDLState& state, GameState& gs, const Resources& res) {
     /*
         1 - Ground
-        2 - Door
-        3 - Enemy
+        2 - Rage Enemy
+        3 - Normal Enemy
         4 - Player
         5 - Wall
         6 - Items
+        7 - Exit (stand on it and press E)
     */
 
     //the map
     short map[MAP_ROWS][MAP_COLS] = {
-        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 4, 0, 6, 0, 6, 0, 6, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 6, 0, 6, 0, 6, 0, 6, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 0, 6, 0, 6, 0, 6, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 6, 0, 6, 0, 6, 0, 6, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 0, 6, 0, 6, 0, 6, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 6, 0, 6, 0, 6, 0, 6, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 4, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 6, 0, 0, 0, 0, 0, 5, 0, 0, 6, 0, 0, 0, 2, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 6, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 5, 5, 0, 0, 0, 0, 0, 0, 5, 0, 0, 6, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 6, 0, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 5, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 5, 5, 0, 0, 5, 5, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 5, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 3, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 5,
+        5, 0, 0, 0, 0, 0, 3, 0, 0, 0, 3, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 5,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 5, 5, 0, 0, 0, 0, 0, 3, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 6, 0, 0, 0, 6, 0, 0, 0, 0, 5, 0, 0, 2, 0, 2, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 0, 6, 0, 5,
+        5, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 5,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
     };
     //background map
     short backgroundMap[MAP_ROWS][MAP_COLS] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
+
     //foreground map
     /*short foregroundMap[MAP_ROWS][MAP_COLS] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1187,6 +1569,7 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                                 break;
                             }
                         }
+
                         
                         item.direction = Vec2(0,0);
                         item.currentAnimation = ca;
@@ -1195,6 +1578,14 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                         gs.layers[LAYER_IDX_LEVEL].push_back(item);
                         break;
                     }
+                    case 7: {//Exit
+                        GameObject exitObj = createObject(r, c, res.texExit, ObjectType::exit);
+                        exitObj.animations = { Animation(8, 1.6f) };
+                        exitObj.currentAnimation = 0;
+                        gs.layers[LAYER_IDX_LEVEL].push_back(exitObj);
+                        break;
+                    }
+
                 }
     };
     loadMap(map);
@@ -1203,6 +1594,16 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
     //debug use
     assert(gs.playerIndex != -1);
 }
+
+//mark one fog cell as visible (once per frame) and remember it
+inline void markVisible(GameState& gs, int x, int y) {
+    if (gs.fogGrid[y][x] == FogState::Visible)
+        return;
+    gs.fogGrid[y][x] = FogState::Visible;
+    gs.visibleCells.push_back(y * FOG_COLS + x);
+    gs.visiblePoints.push_back(SDL_FPoint{ x - gs.mapViewport.x, y - gs.mapViewport.y });
+}
+
 
 //Bresenham's Line Trace for Line of Sight
 void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs, const SDLState& state) {
@@ -1218,8 +1619,9 @@ void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs, const SDLState
     while (true) {
         //stop when outside the fog map
         if (cx < 0 || cx >= FOG_COLS || cy < 0 || cy >= FOG_ROWS) break;
-        gs.fogGrid[cy][cx] = FogState::Visible;
-        SDL_RenderPoint(state.renderer, cx - gs.mapViewport.x, cy - gs.mapViewport.y);
+        /*gs.fogGrid[cy][cx] = FogState::Visible;
+        SDL_RenderPoint(state.renderer, cx - gs.mapViewport.x, cy - gs.mapViewport.y);*/
+        markVisible(gs, cx, cy);
         //block by wall
         if (wv <= 0) break;
         if (gs.wallGrid[cy][cx]) wv--;
@@ -1255,10 +1657,14 @@ void fogHandle(GameState& gs, const SDLState& state, FogSystem fs) {
     const GameObject& obj = gs.player();
     const PlayerData& objdata = gs.playerdata();
     //reset fog state
-    for (int y = 0; y < FOG_ROWS; y++)
+    /*for (int y = 0; y < FOG_ROWS; y++)
         for (int x = 0; x < FOG_COLS; x++)
             if (gs.fogGrid[y][x] == FogState::Visible)
-                gs.fogGrid[y][x] = FogState::Explored;
+                gs.fogGrid[y][x] = FogState::Explored;*/
+    for (int idx : gs.visibleCells)
+        gs.fogGrid[idx / FOG_COLS][idx % FOG_COLS] = FogState::Explored;
+    gs.visibleCells.clear();
+    gs.visiblePoints.clear();
 
     //cast rays in limited sector
     int playerVision = objdata.playerVision * TILE_SIZE / 2;
@@ -1276,8 +1682,15 @@ void fogHandle(GameState& gs, const SDLState& state, FogSystem fs) {
     }
 
     //player centre always visible
-    if (cy >= 0 && cy < FOG_ROWS && cx >= 0 && cx < FOG_COLS) {
+    /*if (cy >= 0 && cy < FOG_ROWS && cx >= 0 && cx < FOG_COLS) {
         gs.fogGrid[cy][cx] = FogState::Visible;
         SDL_RenderPoint(state.renderer, cx - gs.mapViewport.x, cy - gs.mapViewport.y);
-    }
+    }*/
+    if (cy >= 0 && cy < FOG_ROWS && cx >= 0 && cx < FOG_COLS)
+        markVisible(gs, cx, cy);
+
+    //draw all visible cells into the fog mask with ONE call (the render target is still fogMask here)
+    if (!gs.visiblePoints.empty())
+        SDL_RenderPoints(state.renderer, gs.visiblePoints.data(), (int)gs.visiblePoints.size());
+
 }
