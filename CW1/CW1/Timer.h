@@ -20,6 +20,6 @@ public:
 	bool isTimeout() const { return timeout; }
 	float getTime() const { return time; }
 	float getLength() const { return length; }
-	float setLength(float l) { length = l; }
+	void setLength(float l) { length = l; }
 	void reset() { time = timeout = 0; }
 };

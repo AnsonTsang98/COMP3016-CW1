@@ -1,15 +1,22 @@
 ﻿  CW1.cpp
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(418,35): warning C4244: 'argument': conversion from 'float' to 'Sint32', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(419,35): warning C4244: 'argument': conversion from 'float' to 'Sint32', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(524,57): warning C4244: 'argument': conversion from 'double' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(524,45): warning C4244: 'argument': conversion from 'double' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(736,48): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(736,33): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(774,81): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(846,15): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(847,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(848,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(852,19): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(854,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
-C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(855,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\GameObject.h(67,39): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
+  (compiling source file 'CW1.cpp')
+  
+C:\Users\atsang\source\repos\CW1\CW1\GameObject.h(155,31): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
+  (compiling source file 'CW1.cpp')
+  
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(563,35): warning C4244: 'argument': conversion from 'float' to 'Sint32', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(564,35): warning C4244: 'argument': conversion from 'float' to 'Sint32', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(724,57): warning C4244: 'argument': conversion from 'double' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(724,45): warning C4244: 'argument': conversion from 'double' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(861,56): warning C4244: '+=': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1052,48): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1052,33): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1108,81): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1243,15): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1244,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1245,12): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1249,19): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1251,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\atsang\source\repos\CW1\CW1\CW1.cpp(1252,21): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
   CW1.vcxproj -> C:\Users\atsang\source\repos\CW1\x64\Debug\CW1.exe

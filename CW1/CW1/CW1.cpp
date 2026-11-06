@@ -11,7 +11,7 @@ using namespace std;
 
 const size_t LAYER_IDX_LEVEL = 0;
 const size_t LAYER_IDK_CHARACTERS = 1;
-const int MAP_ROWS = 5;
+const int MAP_ROWS = 10;
 const int MAP_COLS = 50;
 const int TILE_SIZE = 32;
 const int FOG_ROWS = MAP_ROWS * TILE_SIZE;
@@ -34,8 +34,11 @@ struct SDLState {
 
 struct Resources {
     //player anim
-    const int ANIM_PLAYER_IDLE = 0;
-    const int ANIM_PLAYER_WALK = 1;
+    const int ANIM_PLAYER_PISTOL = 0;
+    const int ANIM_PLAYER_RIFLE = 1;
+    const int ANIM_PLAYER_SHOTGUN = 2;
+    const int ANIM_PLAYER_SMG = 3;
+    const int ANIM_PLAYER_DEAD = 4;
     vector<Animation> playerAnims;
 
     //bullet anim
@@ -44,17 +47,35 @@ struct Resources {
     vector<Animation> bulletAnims;
 
     //enemy anim
-    const int ANIM_ENEMY = 0;
-    const int ANIM_ENEMY_DIE = 1;
+    const int ANIM_ENEMY_WALK = 0;
+    const int ANIM_ENEMY_CHASE = 1;
+    const int ANIM_ENEMY_FWALK = 2;
+    const int ANIM_ENEMY_FCHASE = 3;
+    const int ANIM_ENEMY_DIE = 4;
     vector<Animation> enemyAnims;
 
+    //enemy anim
+    const int ANIM_SPEEDUP = 0;
+    const int ANIM_MEDKIT = 1;
+    const int ANIM_FLASHLIGHT = 2;
+    const int ANIM_PISTOL = 3;
+    const int ANIM_RIFLE = 4;
+    const int ANIM_SHOTGUN = 5;
+    const int ANIM_SMG = 6;
+    vector<Animation> itemAnims;
+
+    //screen anim
+    Animation screenAnim = Animation(24, 4.0f);
+
     vector<SDL_Texture*> textures;
-    SDL_Texture* texIdle,* texWalk,* texGround,* texWall,* texBullet,* texBulletHit,* texEnemy,* texEnemyDie;
+    SDL_Texture* texPPistol,* texPRifle,* texPShotgun,* texPSMG,* texPDead,* texGround,* texWall,* texBullet,* texBulletHit,
+        * texNormalWalk,* texNormalChase,* texNormalDie,* texRageWalk,* texRageChase,* texRageDie,
+        * texSpeedUp,* texMedKit,* texFlashlight,* texPistol,* texRifle,* texShotgun,* texSMG,* texBleed;
 
     SDL_Texture* loadTexture(SDL_Renderer* renderer, const string& texPath) {
         //create surface from path
         string imgPath = (string)SDL_GetBasePath() + texPath;
-        SDL_Surface* surface = SDL_LoadBMP(imgPath.c_str());
+        SDL_Surface* surface = SDL_LoadBMP(imgPath.c_str());    
 
         //remove white color as remove background
         Uint32 colorkey = SDL_MapRGB(SDL_GetPixelFormatDetails(surface->format),nullptr, 255, 255, 255);
@@ -68,16 +89,18 @@ struct Resources {
         return tex;
     }
 
-    Resources():texIdle(nullptr), texWalk(nullptr), texGround(nullptr), texWall(nullptr), texBullet(nullptr),
-        texBulletHit(nullptr), texEnemy(nullptr), texEnemyDie(nullptr) {}
+    Resources():texPPistol(nullptr), texPRifle(nullptr), texPShotgun(nullptr), texPSMG(nullptr), texPDead(nullptr), texGround(nullptr), texWall(nullptr), texBullet(nullptr),
+        texBulletHit(nullptr), texNormalWalk(nullptr), texNormalChase(nullptr), texNormalDie(nullptr), texRageWalk(nullptr), texRageChase(nullptr), texRageDie(nullptr),
+        texSpeedUp(nullptr), texMedKit(nullptr), texFlashlight(nullptr),  texPistol(nullptr),  texRifle(nullptr),  texShotgun(nullptr),  texSMG(nullptr), texBleed(nullptr) {}
 
     void load(SDLState& state) {
         //player anims
         playerAnims.resize(5);
-        //playerAnims[ANIM_PLAYER_IDLE] = Animation(4, 1.6f);
-        //playerAnims[ANIM_PLAYER_WALK] = Animation(4, 0.5f);
-        playerAnims[ANIM_PLAYER_IDLE] = Animation();
-        playerAnims[ANIM_PLAYER_WALK] = Animation();
+        playerAnims[ANIM_PLAYER_PISTOL] =
+        playerAnims[ANIM_PLAYER_RIFLE] =
+        playerAnims[ANIM_PLAYER_SHOTGUN] =
+        playerAnims[ANIM_PLAYER_SMG] =
+        playerAnims[ANIM_PLAYER_DEAD] = Animation(8, 1.0f);
 
         //bullet anims
         bulletAnims.resize(2);
@@ -85,19 +108,48 @@ struct Resources {
         bulletAnims[ANIM_BULLET_HIT] = Animation(4, 0.15f);
 
         //enemy anims
-        enemyAnims.resize(2);
-        enemyAnims[ANIM_ENEMY] = Animation(3, 1.0f);
-        enemyAnims[ANIM_ENEMY_DIE] = Animation(3, 2.0f);
+        enemyAnims.resize(5);
+        enemyAnims[ANIM_ENEMY_WALK] = Animation(8, 2.0f);
+        enemyAnims[ANIM_ENEMY_CHASE] = Animation(8, 1.0f);
+        enemyAnims[ANIM_ENEMY_FWALK] = Animation(8, 2.0f);
+        enemyAnims[ANIM_ENEMY_FCHASE] = Animation(8, 0.6f);
+        enemyAnims[ANIM_ENEMY_DIE] = Animation(8, 1.6f);
+
+        //item anims
+        itemAnims.resize(7);
+        itemAnims[ANIM_SPEEDUP] = Animation(8, 1.6f, SDL_rand(8));
+        itemAnims[ANIM_MEDKIT] = Animation(8, 1.6f, SDL_rand(8));
+        itemAnims[ANIM_FLASHLIGHT] = Animation(8, 1.6f, SDL_rand(8));
+        itemAnims[ANIM_PISTOL] = Animation(8, 1.6f, SDL_rand(8));
+        itemAnims[ANIM_RIFLE] = Animation(8, 1.6f, SDL_rand(8));
+        itemAnims[ANIM_SHOTGUN] = Animation(8, 1.6f, SDL_rand(8));
+        itemAnims[ANIM_SMG] = Animation(8, 1.6f, SDL_rand(8));
 
         //load texture from bmp file by path
-        texIdle = loadTexture(state.renderer, "Assets/playerIdle.bmp");
-        texWalk = loadTexture(state.renderer, "Assets/playerWalk.bmp");
+        texPPistol = loadTexture(state.renderer, "Assets/main_pistol_walk.bmp");
+        texPRifle = loadTexture(state.renderer, "Assets/main_rifle_walk.bmp");
+        texPShotgun = loadTexture(state.renderer, "Assets/main_shotgun_walk.bmp");
+        texPSMG = loadTexture(state.renderer, "Assets/main_smg_walk.bmp");
+        texPDead = loadTexture(state.renderer, "Assets/main_dead_anim.bmp");
         texGround = loadTexture(state.renderer, "Assets/ground2.bmp");
         texWall = loadTexture(state.renderer, "Assets/wall1.bmp");
         texBullet = loadTexture(state.renderer, "Assets/bullet.bmp");
         texBulletHit = loadTexture(state.renderer, "Assets/bulletHit.bmp");
-        texEnemy = loadTexture(state.renderer, "Assets/enemy.bmp");
-        texEnemyDie = loadTexture(state.renderer, "Assets/enemyDie.bmp");
+        texNormalWalk = loadTexture(state.renderer, "Assets/zombie_idle_walk.bmp");
+        texNormalChase = loadTexture(state.renderer, "Assets/zombie_chase_walk.bmp");
+        texNormalDie = loadTexture(state.renderer, "Assets/zombie_dead_anim.bmp");
+        texRageWalk = loadTexture(state.renderer, "Assets/rage_idle_walk.bmp");
+        texRageChase = loadTexture(state.renderer, "Assets/rage_chase_walk.bmp");
+        texRageDie = loadTexture(state.renderer, "Assets/rage_dead_anim.bmp");
+        texSpeedUp = loadTexture(state.renderer, "Assets/speedUp.bmp");
+        texMedKit = loadTexture(state.renderer, "Assets/medkit_anim.bmp");
+        texFlashlight = loadTexture(state.renderer, "Assets/flashlight_anim.bmp");
+        texPistol = loadTexture(state.renderer, "Assets/pistol_anim.bmp");
+        texRifle = loadTexture(state.renderer, "Assets/assault_rifle_anim.bmp");
+        texShotgun = loadTexture(state.renderer, "Assets/shotgun_anim.bmp");
+        texSMG = loadTexture(state.renderer, "Assets/smg_anim.bmp");
+        texBleed = loadTexture(state.renderer, "Assets/bleed_anim_sheet.bmp");
+        SDL_SetTextureBlendMode(texBleed, SDL_BLENDMODE_BLEND);
     }
 
     void unload() {
@@ -112,26 +164,72 @@ struct GameState {
     vector<vector<bool>> wallGrid;
     // Setup Camera
     SDL_FRect mapViewport;
-
+    vector<Weapon*> guns;
+    vector<Zombie*> zombies;
     array<vector<GameObject>,2> layers;
     vector<GameObject> background, foreground, bullets;
     int playerIndex;
     float playerAngle;
-    bool debugmode,pre;
+    bool debugmode,pre,use;
 
     GameState(const SDLState& state) :playerIndex(-1), playerAngle(0), fogGrid(FOG_ROWS, vector<FogState>(FOG_COLS, FogState::Unexplored)),
         wallGrid(FOG_ROWS, vector<bool>(FOG_COLS, 0)), mapViewport(SDL_FRect{0,0,static_cast<float>(state.logW),static_cast<float>(state.logH)}),
-    debugmode(false),pre(false){}
+    debugmode(false),pre(false),use(false){}
     GameObject& player() { return layers[LAYER_IDK_CHARACTERS][playerIndex]; }
+    PlayerData& playerdata() { return layers[LAYER_IDK_CHARACTERS][playerIndex].data.player; }
+
+    void unload() {
+        for (Weapon* gun : guns)
+            delete gun;
+        for (Zombie* zombie : zombies)
+            delete zombie;
+    }
+};
+
+struct FogSystem {
+    int width, height;
+    SDL_Texture* entityBuffer,* fogMask;
+
+    FogSystem(const SDLState& state) :entityBuffer(nullptr), fogMask(nullptr) {
+        width = state.logW;
+        height = state.logH;
+
+        //custom blend mode for only take buffer color and the alpha collided between mask and buffer
+        SDL_BlendMode fogBlendMode = SDL_ComposeCustomBlendMode(
+            SDL_BLENDFACTOR_ZERO,              // Mask Color Factor
+            SDL_BLENDFACTOR_ONE,               // Buffer Color Factor
+            SDL_BLENDOPERATION_ADD,            // Color Operation
+            SDL_BLENDFACTOR_ONE,               // Mask Alpha Factor
+            SDL_BLENDFACTOR_ONE,               // Buffer Alpha Factor
+            SDL_BLENDOPERATION_MINIMUM         // Alpha Operation
+        );
+
+        //create a texture to hold raw entity renderings
+        entityBuffer = SDL_CreateTexture(state.renderer, SDL_PIXELFORMAT_RGBA8888,
+            SDL_TEXTUREACCESS_TARGET, width, height);
+
+        //create a texture to act as the visibility mask
+        fogMask = SDL_CreateTexture(state.renderer, SDL_PIXELFORMAT_RGBA8888,
+            SDL_TEXTUREACCESS_TARGET, width, height);
+
+        //setup blend mode
+        SDL_SetTextureBlendMode(fogMask, fogBlendMode);
+        SDL_SetTextureBlendMode(entityBuffer, SDL_BLENDMODE_BLEND);
+    }
+
+    void unload() {
+        SDL_DestroyTexture(entityBuffer);
+        SDL_DestroyTexture(fogMask);
+    }
 };
 
 bool initSDL(SDLState&);
 void cleanSDL(SDLState&);
-void drawObject(const SDLState&, GameState&, GameObject&,float, float, float);
+void drawObject(const SDLState&, GameState&, GameObject&, float, float, float);
 void update(const SDLState&, GameState&, Resources&, GameObject&, float);
 void createTiles(SDLState&, GameState&, const Resources&);
-void CastVisionRay(int, int, int, int, GameState&);
-void fogHandle(GameState&);
+void CastVisionRay(int, int, int, int, GameState&, const SDLState&);
+void fogHandle(GameState&, const SDLState&, FogSystem);
 void collisionResponse(const SDLState&, GameState&, Resources&, const SDL_FRect&, const SDL_FRect&, const SDL_FRect&, GameObject&, GameObject&, float);
 void checkCollision(const SDLState&, GameState&, Resources&, GameObject&, GameObject&, float);
 
@@ -153,17 +251,39 @@ int main() {
     GameState gs(state);
     createTiles(state, gs, res);
     uint64_t prevTime = SDL_GetTicks();
+    FogSystem fs(state);
 
-    //gameloop
+    
     bool running = true;
+    bool gaming = false;
     while (running) {
-        uint64_t nowTime = SDL_GetTicks();
-        float deltaTime = (nowTime - prevTime) / 1000.0f;
         SDL_Event event{ 0 };
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
+            case SDL_EVENT_QUIT: {
+                running = false;
+                break;
+            }
+            case SDL_EVENT_WINDOW_RESIZED: {
+                state.width = event.window.data1;
+                state.height = event.window.data2;
+                break;
+            }
+            }
+        }
+
+
+
+        //gameloop
+        while (gaming) {
+            uint64_t nowTime = SDL_GetTicks();
+            float deltaTime = (nowTime - prevTime) / 1000.0f;
+            
+            while (SDL_PollEvent(&event)) {
+                switch (event.type) {
                 case SDL_EVENT_QUIT: {
                     running = false;
+                    gaming = false;
                     break;
                 }
                 case SDL_EVENT_WINDOW_RESIZED: {
@@ -171,93 +291,132 @@ int main() {
                     state.height = event.window.data2;
                     break;
                 }
-            }
-        }
-
-        //update all objects
-        for (auto& layer : gs.layers)
-            for (GameObject& obj : layer){
-                update(state, gs, res, obj, deltaTime);
-            }
-
-        for (GameObject& bullet : gs.bullets) {
-            update(state, gs, res, bullet, deltaTime);
-        }
-
-        fogHandle(gs);
-
-        //calculatte viewport
-        gs.mapViewport.x = (gs.player().position.x + TILE_SIZE / 2) - gs.mapViewport.w / 2;
-
-        //prepare render
-        SDL_SetRenderDrawColor(state.renderer, 20, 10, 30, 255);
-        SDL_RenderClear(state.renderer);
-
-        //draw background
-        for (GameObject& obj : gs.background) {
-            SDL_FRect dst{
-                obj.position.x - gs.mapViewport.x,
-                obj.position.y,
-                static_cast<float>(obj.texture->w),
-                static_cast<float>(obj.texture->h)
-            };
-            SDL_RenderTexture(state.renderer, obj.texture, nullptr, &dst);
-        }
-
-        //draw all objects
-        for(auto &layer : gs.layers)
-            for (GameObject& obj : layer) {
-                drawObject(state, gs, obj, TILE_SIZE, TILE_SIZE, deltaTime);
-            }
-
-        //draw bullets
-        for (GameObject& bullet : gs.bullets) {
-            if(bullet.data.bullet.state != BulletState::inactive)
-                drawObject(state, gs, bullet, bullet.collider.w, bullet.collider.h, deltaTime);
-        }
-
-        //draw foreground
-        for (GameObject& obj : gs.foreground) {
-            SDL_FRect dst{
-                obj.position.x - gs.mapViewport.x,
-                obj.position.y,
-                static_cast<float>(obj.texture->w),
-                static_cast<float>(obj.texture->h)
-            };
-            SDL_RenderTexture(state.renderer, obj.texture, nullptr, &dst);
-        }
-
-        //fog
-        SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
-
-        for (int y = 0; y < FOG_ROWS; ++y)
-            for (int x = 0; x < FOG_COLS; ++x){
-                SDL_FRect fogRect = { (float)x - gs.mapViewport.x, (float)y, 1.0f, 1.0f };
-
-                if (gs.fogGrid[y][x] == FogState::Unexplored) {
-                    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255); // Shroud
-                    SDL_RenderFillRect(state.renderer, &fogRect);
-                }
-                else if (gs.fogGrid[y][x] == FogState::Explored) {
-                    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 165); // Fog
-                    SDL_RenderFillRect(state.renderer, &fogRect);
                 }
             }
 
-        //debug use info
-        if (gs.debugmode) {
-            string msg = "S: " + to_string(static_cast<int>(gs.player().data.player.state)) + ", B: " + to_string(gs.bullets.size());
-            SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
-            SDL_RenderDebugText(state.renderer, 5, 5, msg.c_str());
+            //update all objects
+            for (auto& layer : gs.layers)
+                for (GameObject& obj : layer) {
+                    update(state, gs, res, obj, deltaTime);
+                }
+
+            for (GameObject& bullet : gs.bullets) {
+                update(state, gs, res, bullet, deltaTime);
+            }
+
+            //calculatte viewport
+            gs.mapViewport.x = (gs.player().position.x + TILE_SIZE / 2) - gs.mapViewport.w / 2;
+            gs.mapViewport.y = (gs.player().position.y + TILE_SIZE / 2) - gs.mapViewport.h / 2;
+
+            fogHandle(gs, state, fs);
+
+            //update bleeding screen effect
+            float screenBleedRatio = (1 - ((gs.playerdata().playerHP < 0) ? 0 : gs.playerdata().playerHP) / gs.playerdata().playerMaxHP);
+            res.screenAnim.step(deltaTime);
+            SDL_FRect screenDst{ 0 ,0 ,(float)state.logW,(float)state.logH };
+            SDL_FRect screenSrc{ state.logW * (res.screenAnim.currentFrame() % 4),state.logH * (int)(res.screenAnim.currentFrame() / 4),state.logW,state.logH };
+            SDL_SetTextureAlphaMod(res.texBleed, 200 * screenBleedRatio);
+
+            //draw entity to buffer texture
+            SDL_SetRenderTarget(state.renderer, fs.entityBuffer);
+            SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 0);
+            SDL_RenderClear(state.renderer);
+
+            for (GameObject& obj : gs.layers[LAYER_IDK_CHARACTERS]) {
+                if (obj.type == ObjectType::enemy) {
+                    drawObject(state, gs, obj, TILE_SIZE, TILE_SIZE, deltaTime);
+                }
+            }
+
+            //blend the buffer and fog mask
+            SDL_SetRenderTarget(state.renderer, fs.entityBuffer);
+            SDL_RenderTexture(state.renderer, fs.fogMask, nullptr, nullptr);
+
+            //prepare render
+            SDL_SetRenderTarget(state.renderer, nullptr);
+            SDL_SetRenderDrawColor(state.renderer, 20, 10, 30, 255);
+            SDL_RenderClear(state.renderer);
+
+            //draw background
+            for (GameObject& obj : gs.background) {
+                SDL_FRect dst{
+                    obj.position.x - gs.mapViewport.x,
+                    obj.position.y - gs.mapViewport.y,
+                    static_cast<float>(obj.texture->w),
+                    static_cast<float>(obj.texture->h)
+                };
+                SDL_RenderTexture(state.renderer, obj.texture, nullptr, &dst);
+            }
+
+            //draw foreground
+            /*for (GameObject& obj : gs.foreground) {
+                SDL_FRect dst{
+                    obj.position.x - gs.mapViewport.x,
+                    obj.position.y - gs.mapViewport.y,
+                    static_cast<float>(obj.texture->w),
+                    static_cast<float>(obj.texture->h)
+                };
+                SDL_RenderTexture(state.renderer, obj.texture, nullptr, &dst);
+            }*/
+
+            //draw all objects
+            for (auto& layer : gs.layers)
+                for (GameObject& obj : layer) {
+                    if (obj.type != ObjectType::enemy && !(obj.type == ObjectType::item && !obj.data.item.active))
+                        drawObject(state, gs, obj, TILE_SIZE, TILE_SIZE, deltaTime);
+                }
+
+            //draw entity from buffer to screen
+            SDL_RenderTexture(state.renderer, fs.entityBuffer, nullptr, nullptr);
+
+            //draw bullets
+            for (GameObject& bullet : gs.bullets) {
+                if (bullet.data.bullet.state != BulletState::inactive)
+                    drawObject(state, gs, bullet, bullet.collider.w, bullet.collider.h, deltaTime);
+            }
+
+            //fog
+            SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+
+            for (int y = 0; y < FOG_ROWS; y++)
+                for (int x = 0; x < FOG_COLS; x++) {
+                    SDL_FRect fogRect = { x - gs.mapViewport.x, y - gs.mapViewport.y, 1.0f, 1.0f };
+
+                    if (gs.fogGrid[y][x] == FogState::Unexplored) {
+                        SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255); // Shroud
+                        SDL_RenderFillRect(state.renderer, &fogRect);
+                    }
+                    else if (gs.fogGrid[y][x] == FogState::Explored) {
+                        SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 165); // Fog
+                        SDL_RenderFillRect(state.renderer, &fogRect);
+                    }
+                }
+
+            //draw bleeding screen overlay represent player hp
+            SDL_SetRenderDrawColor(state.renderer, 255, 0, 0, 128 * screenBleedRatio); // Blood
+            SDL_RenderFillRect(state.renderer, &screenDst);
+            SDL_RenderTexture(state.renderer, res.texBleed, &screenSrc, &screenDst);
+
+            //debug use info
+            if (gs.debugmode) {
+                string msg = "S: " + to_string(static_cast<int>(gs.playerdata().state)) +
+                    ", B: " + to_string(gs.bullets.size()) + ", gun_CD: " + to_string(gs.playerdata().gun->cooldown) +
+                    ", E: " + to_string(gs.use) + ", hp: " + to_string(gs.playerdata().playerHP) + ", Frame: " + to_string(res.screenAnim.currentFrame()) +
+                    ", W: " + to_string(res.screenAnim.currentFrame() % 4) + ", H: " + to_string((int)(res.screenAnim.currentFrame() / 6));
+                SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 255);
+                SDL_RenderDebugText(state.renderer, 5, 5, msg.c_str());
+            }
+
+            //render
+            SDL_RenderPresent(state.renderer);
+
+            prevTime = nowTime;
         }
-
-        //render
-        SDL_RenderPresent(state.renderer);
-
-        prevTime = nowTime;
     }
     //cout<< SDL_GetBasePath() <<endl; // show base path
+    gs.unload();
     res.unload();
+    fs.unload();
     cleanSDL(state);
     return 0;
 }
@@ -302,7 +461,7 @@ void drawObject(const SDLState& state, GameState& gs, GameObject& obj, float wid
 
     SDL_FRect dst{
         obj.position.x - gs.mapViewport.x,
-        obj.position.y,
+        obj.position.y - gs.mapViewport.y,
         width,
         height
     };
@@ -325,7 +484,7 @@ void drawObject(const SDLState& state, GameState& gs, GameObject& obj, float wid
     if (gs.debugmode) {
         SDL_FRect rectA{
         obj.position.x + obj.collider.x - gs.mapViewport.x,
-        obj.position.y + obj.collider.y,
+        obj.position.y + obj.collider.y - gs.mapViewport.y,
         obj.collider.w,
         obj.collider.h
         };
@@ -351,12 +510,16 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
 
         //handle player vision
         float cx = TILE_SIZE / 2 + obj.position.x - gs.mapViewport.x;
-        float cy = TILE_SIZE / 2 + obj.position.y;
+        float cy = TILE_SIZE / 2 + obj.position.y - gs.mapViewport.y;
         float dx = mouseX - cx;
         float dy = mouseY - cy;
 
+        //calculatte viewport with mouse offset
+        //gs.mapViewport.x = (mouseX - (state.logW / 2)) / 8  + (gs.player().position.x + TILE_SIZE / 2) - gs.mapViewport.w / 2;
+        //gs.mapViewport.y = (mouseY - (state.logH / 2)) / 6  + (gs.player().position.y + TILE_SIZE / 2) - gs.mapViewport.h / 2;
+
         //update player angle dynamically if the mouse has moved away from the player center
-        if (abs(dx) > 1.0f || abs(dy) > 1.0f) {
+        if ((abs(dx) > 1.0f || abs(dy) > 1.0f) && gs.playerdata().state != PlayerState::dead) {
             float mouseAngleRad = atan2(dy, dx);
             gs.playerAngle = mouseAngleRad * 180 / 3.14159265f;
         }
@@ -364,15 +527,19 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
         
         //handle player movement
         Vec2 direction;
-
-        if (state.keys[SDL_SCANCODE_A])
-            direction.x -= 1;
-        if (state.keys[SDL_SCANCODE_D])
-            direction.x += 1;
-        if (state.keys[SDL_SCANCODE_W])
-            direction.y -= 1;
-        if (state.keys[SDL_SCANCODE_S])
-            direction.y += 1;
+        gs.use = false;
+        if (gs.playerdata().state != PlayerState::dead) {
+            if (state.keys[SDL_SCANCODE_A])
+                direction.x -= 1;
+            if (state.keys[SDL_SCANCODE_D])
+                direction.x += 1;
+            if (state.keys[SDL_SCANCODE_W])
+                direction.y -= 1;
+            if (state.keys[SDL_SCANCODE_S])
+                direction.y += 1;
+            if (state.keys[SDL_SCANCODE_E])
+                gs.use = true;
+        }
 
         //handle horizontal speed slowdown
         if (direction.x)
@@ -414,13 +581,13 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
 
             //caculate the bullet direction
             float d = sqrtf(dx * dx + dy * dy);
-            float variationX, variationY = variationX = 40;
+            float variationX, variationY = variationX = gs.playerdata().gun->spread;
             variationX = SDL_rand(variationX) - variationX / 2;
             variationY = SDL_rand(variationY) - variationY / 2;
             bullet.direction = Vec2((dx + variationX) / d, (dy + variationY) / d);
 
             bullet.collider = SDL_FRect{ 0,0,static_cast<float>(res.texBullet->h),static_cast<float>(res.texBullet->h) };
-            bullet.position = Vec2(cx + gs.mapViewport.x + (12 * bullet.direction.x), cy + (12 * bullet.direction.y));
+            bullet.position = Vec2(cx + gs.mapViewport.x + (12 * bullet.direction.x), cy + gs.mapViewport.y + (12 * bullet.direction.y));
             bullet.velocity = Vec2(obj.velocity.x + 200 * bullet.direction.x, obj.velocity.y + 200 * bullet.direction.y);
 
             //overwrit inactive bullet slot
@@ -436,12 +603,14 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
         };
 
         //handle shooting
-        Timer& weaponTimer = obj.data.player.weaponTimer;
+        Timer& weaponTimer = gs.playerdata().weaponTimer;
         weaponTimer.step(deltaTime);
         if (mouseB & SDL_BUTTON_LMASK) {
-            if (weaponTimer.isTimeout()) {
+            if (gs.playerdata().state != PlayerState::dead && weaponTimer.isTimeout()) {
                 weaponTimer.reset();
-                spawnBullet();
+                int bullet = gs.playerdata().gun->bullet;
+                for (int n = 0; n < bullet; n++)
+                    spawnBullet();
             }
         }
 
@@ -452,22 +621,32 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
         gs.pre = state.keys[SDL_SCANCODE_F10];
 
         //handle player FSM
-        switch (obj.data.player.state) {
+        switch (gs.playerdata().state) {
             case PlayerState::idle: {
                 if (direction.x != 0 || direction.y != 0) {
-                    obj.data.player.state = PlayerState::walking;
+                    gs.playerdata().state = PlayerState::walking;
                 }
-                obj.texture = res.texIdle;
-                //obj.currentAnimation = res.ANIM_PLAYER_IDLE;
+                if (obj.currentAnimation != -1 && obj.animations[obj.currentAnimation].isDone()) {
+                    gs.playerdata().lastAnim = obj.currentAnimation;
+                    obj.currentAnimation = -1;
+                    obj.spriteFrame = 1;
+                }
                 break;
             }
             case PlayerState::walking: {
                 if (direction.x == 0 && direction.y == 0) {
-                    obj.data.player.state = PlayerState::idle;
+                    gs.playerdata().state = PlayerState::idle;
                 }
-                obj.texture = res.texWalk;
-                //obj.currentAnimation = res.ANIM_PLAYER_WALK;
+                if (obj.currentAnimation == -1) {
+                    obj.currentAnimation = gs.playerdata().lastAnim;
+                }
                 break;
+            }
+            case PlayerState::dead: {
+                if (obj.currentAnimation != -1 && obj.animations[obj.currentAnimation].isDone()) {
+                    obj.currentAnimation = -1;
+                    obj.spriteFrame = 8;
+                }
             }
         }
 
@@ -498,6 +677,51 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
     //update enemy if Game Object is enemy
     else if (obj.type == ObjectType::enemy) {
         EnemyData& enemydata = obj.data.enemy;
+        //lambda function
+        auto const zombieChangeState = [&](EnemyState state) {
+            enemydata.state = state;
+            switch (state) {
+                case EnemyState::idle: {
+                    enemydata.stateTimer.setLength(enemydata.idleTime);
+                    if (enemydata.z->score == 1) {
+                        obj.texture = res.texNormalWalk;
+                    }
+                    else {
+                        obj.texture = res.texRageWalk;
+                    }
+                    obj.currentAnimation = -1;
+                    obj.spriteFrame = 1;
+                    obj.velocity = Vec2(0, 0);
+                    break;
+                }
+                case EnemyState::roaming: {
+                    enemydata.stateTimer.setLength(enemydata.roamingTime);
+                    if (enemydata.z->score == 1) {
+                        obj.texture = res.texNormalWalk;
+                        obj.currentAnimation = res.ANIM_ENEMY_WALK;
+                    }
+                    else {
+                        obj.texture = res.texRageWalk;
+                        obj.currentAnimation = res.ANIM_ENEMY_FWALK;
+                    }
+                    obj.velocity = enemydata.z->speed * obj.direction;
+                    break;
+                }
+                case EnemyState::attack: {
+                    enemydata.stateTimer.setLength(enemydata.attackTime);
+                    if (enemydata.z->score == 1) {
+                        obj.texture = res.texNormalChase;
+                        obj.currentAnimation = res.ANIM_ENEMY_CHASE;
+                    }
+                    else {
+                        obj.texture = res.texRageChase;
+                        obj.currentAnimation = res.ANIM_ENEMY_FCHASE;
+                    }
+                    obj.velocity = enemydata.z->speed * obj.direction;
+                    break;
+                }
+            }
+        };
 
         //lambda function
         const auto playerInRange = [&]() {
@@ -506,10 +730,9 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
             float dy = gs.player().position.y - obj.position.y;
             float d = sqrtf(dx * dx + dy * dy);
             if (enemydata.state != EnemyState::dead && d < 100) {
-                enemydata.state = EnemyState::attack;
                 obj.direction = Vec2(dx / d, dy / d);
-                obj.velocity = Vec2(80 * obj.direction.x, 80 * obj.direction.y);
-                return true;
+                zombieChangeState(EnemyState::attack);
+                return true && gs.playerdata().state != PlayerState::dead;
             }
             return false;
         };
@@ -518,52 +741,53 @@ void update(const SDLState& state, GameState& gs, Resources& res, GameObject& ob
         switch (enemydata.state) {
             case EnemyState::idle: {
                 if (playerInRange()) {}
-                else if (enemydata.idleTimer.step(deltaTime)) {
-                    enemydata.state = EnemyState::roaming;
+                else if (enemydata.stateTimer.step(deltaTime)) {
                     int angle = SDL_rand(360);
                     obj.direction = Vec2(cos(angle), sin(angle));
-                    obj.velocity = Vec2(80 * obj.direction.x, 80 * obj.direction.y);
+                    zombieChangeState(EnemyState::roaming);
                 }
                 break;
             }
             case EnemyState::roaming: {
                 if (playerInRange()) {}
-                else if (enemydata.roamingTimer.step(deltaTime)) {
-                    enemydata.state = EnemyState::idle;
-                    obj.velocity = Vec2(0,0);
+                else if (enemydata.stateTimer.step(deltaTime)) {
+                    zombieChangeState(EnemyState::idle);
                 }
                 break;
             }
             case EnemyState::attack: {
                 enemydata.cooldownTimer.step(deltaTime);
-                if (enemydata.cooldownTimer.isTimeout()) {
-                    obj.velocity = Vec2(80 * obj.direction.x, 80 * obj.direction.y);
+                if (enemydata.cooldownTimer.isTimeout() && gs.playerdata().state != PlayerState::dead) {
+                    obj.velocity = enemydata.z->speed * obj.direction;
                     if (playerInRange())
-                        enemydata.attackTimer.reset();
-                    else if (enemydata.attackTimer.step(deltaTime)) {
-                        enemydata.state = EnemyState::idle;
-                        obj.velocity = Vec2(0, 0);
+                        enemydata.stateTimer.reset();
+                    else if (enemydata.stateTimer.step(deltaTime)) {
+                        zombieChangeState(EnemyState::idle);
                     }
                 }
+                else if(gs.playerdata().state == PlayerState::dead)
+                    obj.velocity = Vec2(0, 0);
                 break;
             }
             case EnemyState::damaged: {
                 if (enemydata.damagedTimer.step(deltaTime)) {
-                    if (!playerInRange())
-                        enemydata.state = EnemyState::idle;
+                    if (!playerInRange()) {
+                        zombieChangeState(EnemyState::idle);
+                    }
                 }
                 break;
             }
             case EnemyState::dead: {
                 if (obj.currentAnimation != -1 && obj.animations[obj.currentAnimation].isDone()) {
                     obj.currentAnimation = -1;
-                    obj.spriteFrame = 3;
+                    obj.spriteFrame = 8;
                 }
                 break;
             }
         }
     }
-
+    else if(obj.type == ObjectType::item && obj.data.item.type == ItemType::weapon)
+        obj.data.item.gun->pickUpCooldown.step(deltaTime);
     //update Game Object location
     obj.position += obj.velocity * deltaTime;
 
@@ -602,7 +826,7 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                 break;
             }
             case ObjectType::enemy: {
-                if (objB.data.enemy.state != EnemyState::dead) {
+                if (objB.data.enemy.state != EnemyState::dead && gs.playerdata().state != PlayerState::dead) {
                     float knockback = 100.0f;
                     float dx = objA.position.x - objB.position.x;
                     float dy = objA.position.y - objB.position.y;
@@ -618,6 +842,95 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                         //vertical collision
                         objA.position.y += (rectC.h + 10) * (objA.position.y > objB.position.y) ? 1 : -1;
                         objA.velocity.y = dirY * knockback;
+                    }
+                    objA.shouldFlash = true;
+                    objA.flashTimer.reset();
+                    objA.data.player.playerHP -= objB.data.enemy.z->damage;
+                    if (gs.playerdata().playerHP <= 0) {
+                        gs.playerdata().state = PlayerState::dead;
+                        objA.texture = res.texPDead;
+                        objA.currentAnimation = res.ANIM_PLAYER_DEAD;
+                        objA.velocity = Vec2(0, 0);
+                    }
+                }
+                break;
+            }
+            case ObjectType::item: {
+                PlayerData& pd = objA.data.player;
+                ItemData& itemdata = objB.data.item;
+                if(gs.use && itemdata.active && !(itemdata.type == ItemType::weapon && !itemdata.gun->pickUpCooldown.isTimeout())){
+                    if (itemdata.type != ItemType::weapon) {
+                        itemdata.active = false;
+                        objB.collider = { 0,0,0,0 };
+                    }
+                    else {
+                        itemdata.gun->pickUpCooldown.reset();
+                        pd.gun->pickUpCooldown.reset();
+                    }
+                    switch (itemdata.type) {
+                        case ItemType::speedup: {
+                            objA.maxSpeed += itemdata.value;
+                            break;
+                        }
+                        case ItemType::heal: {
+                            pd.playerHP += itemdata.value;
+                            if (pd.playerHP > pd.playerMaxHP)
+                                pd.playerHP = pd.playerMaxHP;
+                            break;
+                        }
+                        case ItemType::flashlight: {
+                            pd.playerFov += itemdata.value * 10;
+                            pd.playerVision += itemdata.value;
+                            if (pd.playerFov > 180)
+                                pd.playerFov = 180;
+                            break;
+                        }
+                        case ItemType::weapon: {
+                            switch (pd.gun->anim) {
+                                case 3: {
+                                    objB.texture = res.texPistol;
+                                    break;
+                                }
+                                case 4: {
+                                    objB.texture = res.texRifle;
+                                    break;
+                                }
+                                case 5: {
+                                    objB.texture = res.texShotgun;
+                                    break;
+                                }
+                                case 6: {
+                                    objB.texture = res.texSMG;
+                                    break;
+                                }
+                            }
+                            switch (itemdata.gun->anim) {
+                                case 3: {
+                                    objA.texture = res.texPPistol;
+                                    objA.currentAnimation = res.ANIM_PLAYER_PISTOL;
+                                    break;
+                                }
+                                case 4: {
+                                    objA.texture = res.texPRifle;
+                                    objA.currentAnimation = res.ANIM_PLAYER_RIFLE;
+                                    break;
+                                }
+                                case 5: {
+                                    objA.texture = res.texPShotgun;
+                                    objA.currentAnimation = res.ANIM_PLAYER_SHOTGUN;
+                                    break;
+                                }
+                                case 6: {
+                                    objA.texture = res.texPSMG;
+                                    objA.currentAnimation = res.ANIM_PLAYER_SMG;
+                                    break;
+                                }
+                            }
+                            objB.currentAnimation = pd.gun->anim;
+                            pd.weaponTimer.setLength(pd.extraCooldown + itemdata.gun->cooldown);
+                            swap(pd.gun,itemdata.gun);
+                            break;
+                        }
                     }
                 }
                 break;
@@ -638,13 +951,16 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                         if (enemydata.state != EnemyState::dead) {
                             objB.direction = Vec2(-objA.direction.x, -objA.direction.y);
                             objB.position = Vec2(objB.position.x + (objA.direction.x * 2), objB.position.y + (objA.direction.y * 2));
+                            objB.velocity = objB.direction * enemydata.z->speed;
+                            objB.texture = (objB.data.enemy.z->score == 1) ? res.texNormalWalk : res.texRageWalk;
+                            objB.currentAnimation = (objB.data.enemy.z->score == 1) ? res.ANIM_ENEMY_WALK : res.ANIM_ENEMY_FWALK;
                             objB.shouldFlash = true;
                             objB.flashTimer.reset();
                             enemydata.state = EnemyState::damaged;
-                            enemydata.healthPoints -= 10;
-                            if (enemydata.healthPoints <= 0) {
+                            enemydata.z->hp -= gs.playerdata().gun->damage;
+                            if (enemydata.z->hp <= 0) {
                                 enemydata.state = EnemyState::dead;
-                                objB.texture = res.texEnemyDie;
+                                objB.texture = (objB.data.enemy.z->score == 1)? res.texNormalDie:res.texRageDie;
                                 objB.currentAnimation = res.ANIM_ENEMY_DIE;
                                 objB.velocity = Vec2(0, 0);
                             }
@@ -652,6 +968,10 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
                         else {
                             passthrough = true;
                         }
+                        break;
+                    }
+                    case ObjectType::item: {
+                        passthrough = true;
                         break;
                     }
                 }
@@ -672,7 +992,7 @@ void collisionResponse(const SDLState& state, GameState& gs, Resources& res, con
             objA.data.enemy.cooldownTimer.reset();
             objA.velocity = Vec2(0, 0);
         }
-        else
+        else if(objB.type != ObjectType::item)
             genericResponse();
     }
 }
@@ -711,20 +1031,38 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
 
     //the map
     short map[MAP_ROWS][MAP_COLS] = {
-        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 4, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 0, 0, 0, 0, 0, 3, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 0, 0, 0, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 4, 0, 6, 0, 6, 0, 6, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 6, 0, 6, 0, 6, 0, 6, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 0, 6, 0, 6, 0, 6, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 6, 0, 6, 0, 6, 0, 6, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 0, 6, 0, 6, 0, 6, 0, 6, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 6, 0, 6, 0, 6, 0, 6, 0, 6, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
     //background map
     short backgroundMap[MAP_ROWS][MAP_COLS] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
+    //foreground map
+    /*short foregroundMap[MAP_ROWS][MAP_COLS] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };*/
 
     //lambda function
     const auto loadMap = [&state, &gs, &res](short layer[MAP_ROWS][MAP_COLS]) {
@@ -748,28 +1086,46 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                         gs.background.push_back(ground);
                         break;
                     }
-                    case 2: {//Door
-                        break;
-                    }
-                    case 3: {//Enemy
-                        GameObject enemy = createObject(r, c, res.texEnemy, ObjectType::enemy);
+                    case 2: {//Rage Enemy
+                        GameObject enemy = createObject(r, c, res.texRageWalk, ObjectType::enemy);
                         enemy.data.enemy = EnemyData();
-                        enemy.currentAnimation = res.ANIM_ENEMY;
+                        EnemyData& ed = enemy.data.enemy;
+                        ed.z = new Rage;
+                        gs.zombies.push_back(ed.z);
+                        enemy.currentAnimation = res.ANIM_ENEMY_FWALK;
                         enemy.animations = res.enemyAnims;
                         enemy.acceleration = 300;
-                        enemy.maxSpeed = 80;
+                        enemy.maxSpeed = ed.z->speed;
+                        enemy.collider = { 0,0,32,32 };
+                        gs.layers[LAYER_IDK_CHARACTERS].push_back(enemy);
+                        break;
+                    }
+                    case 3: {//Normal Enemy
+                        GameObject enemy = createObject(r, c, res.texNormalWalk, ObjectType::enemy);
+                        enemy.data.enemy = EnemyData();
+                        EnemyData& ed = enemy.data.enemy;
+                        ed.z = new Normal;
+                        gs.zombies.push_back(ed.z);
+                        enemy.currentAnimation = res.ANIM_ENEMY_WALK;
+                        enemy.animations = res.enemyAnims;
+                        enemy.acceleration = 300;
+                        enemy.maxSpeed = ed.z->speed;
                         enemy.collider = { 0,0,32,32 };
                         gs.layers[LAYER_IDK_CHARACTERS].push_back(enemy);
                         break;
                     }
                     case 4: {//Player
-                        GameObject player = createObject(r, c, res.texIdle, ObjectType::player);
+                        GameObject player = createObject(r, c, res.texPPistol, ObjectType::player);
                         player.data.player = PlayerData();
+                        PlayerData& pd = player.data.player;
+                        pd.gun = new Pistol;
+                        gs.guns.push_back(pd.gun);
+                        pd.weaponTimer.setLength(pd.gun->cooldown + pd.extraCooldown);
                         player.animations = res.playerAnims;
                         player.acceleration = 300;
-                        player.maxSpeed = 100;
-                        player.collider = { 11,6,10,20 };
-                        //player.currentAnimation = res.ANIM_PLAYER_IDLE;
+                        player.maxSpeed = pd.playerSpeed;
+                        player.collider = { 10,10,12,12 };
+                        player.currentAnimation = res.ANIM_PLAYER_PISTOL;
                         gs.layers[LAYER_IDK_CHARACTERS].push_back(player);
                         gs.playerIndex = gs.layers[LAYER_IDK_CHARACTERS].size() - 1;
                         break;
@@ -783,18 +1139,73 @@ void createTiles(SDLState& state, GameState& gs, const Resources& res) {
                         break;
                     }
                     case 6: {//Items
+                        GameObject item = createObject(r, c, res.texWall, ObjectType::item);
+                        item.data.item = ItemData();
+                        ItemData& itemdata = item.data.item;
+                        int ca = -1;
+                        switch (itemdata.type) {
+                            case ItemType::speedup: {
+                                ca = res.ANIM_SPEEDUP;
+                                item.texture = res.texSpeedUp;
+                                break;
+                            }
+                            case ItemType::heal: {
+                                ca = res.ANIM_MEDKIT;
+                                item.texture = res.texMedKit;
+                                break;
+                            }
+                            case ItemType::flashlight: {
+                                ca = res.ANIM_FLASHLIGHT;
+                                item.texture = res.texFlashlight;
+                                break;
+                            }
+                            case ItemType::weapon: {
+                                switch ((int)abs(itemdata.value)) {
+                                    case 1: {
+                                        itemdata.gun = new Pistol;
+                                        item.texture = res.texPistol;
+                                        break;
+                                    }
+                                    case 2: {
+                                        itemdata.gun = new Rifle;
+                                        item.texture = res.texRifle;
+                                        break;
+                                    }
+                                    case 3: {
+                                        itemdata.gun = new Shotgun;
+                                        item.texture = res.texShotgun;
+                                        break;
+                                    }
+                                    case 4: {
+                                        itemdata.gun = new Submachine;
+                                        item.texture = res.texSMG;
+                                        break;
+                                    }
+                                }
+                                gs.guns.push_back(itemdata.gun);
+                                ca = itemdata.gun->anim;
+                                break;
+                            }
+                        }
+                        
+                        item.direction = Vec2(0,0);
+                        item.currentAnimation = ca;
+                        item.animations = res.itemAnims;
+                        item.collider = { 0,0,32,32 };
+                        gs.layers[LAYER_IDX_LEVEL].push_back(item);
                         break;
                     }
                 }
     };
     loadMap(map);
     loadMap(backgroundMap);
+    //loadMap(foregroundMap);
     //debug use
     assert(gs.playerIndex != -1);
 }
 
 //Bresenham's Line Trace for Line of Sight
-void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs) {
+void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs, const SDLState& state) {
     int dx = abs(x1 - x0);
     int dy = abs(y1 - y0);
     int sx = (x0 < x1) ? 1 : -1;
@@ -808,6 +1219,7 @@ void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs) {
         //stop when outside the fog map
         if (cx < 0 || cx >= FOG_COLS || cy < 0 || cy >= FOG_ROWS) break;
         gs.fogGrid[cy][cx] = FogState::Visible;
+        SDL_RenderPoint(state.renderer, cx - gs.mapViewport.x, cy - gs.mapViewport.y);
         //block by wall
         if (wv <= 0) break;
         if (gs.wallGrid[cy][cx]) wv--;
@@ -833,8 +1245,15 @@ void CastVisionRay(int x0, int y0, int x1, int y1, GameState& gs) {
 }
 
 //handle fog
-void fogHandle(GameState& gs) {
+void fogHandle(GameState& gs, const SDLState& state, FogSystem fs) {
+    //prepare fog mask
+    SDL_SetRenderTarget(state.renderer, fs.fogMask);
+    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 0);
+    SDL_RenderClear(state.renderer);
+    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+
     const GameObject& obj = gs.player();
+    const PlayerData& objdata = gs.playerdata();
     //reset fog state
     for (int y = 0; y < FOG_ROWS; y++)
         for (int x = 0; x < FOG_COLS; x++)
@@ -842,21 +1261,23 @@ void fogHandle(GameState& gs) {
                 gs.fogGrid[y][x] = FogState::Explored;
 
     //cast rays in limited sector
-    int playerVision = obj.data.player.playerVision * TILE_SIZE / 2;
-    int steps = obj.data.player.playerFov * 2;
+    int playerVision = objdata.playerVision * TILE_SIZE / 2;
+    int steps = objdata.playerFov * 4;
     int cx = TILE_SIZE / 2 + obj.position.x;
     int cy = TILE_SIZE / 2 + obj.position.y;
 
     for (int i = 0; i < steps; i++) {
-        float angle = obj.data.player.playerFov * i / steps + gs.playerAngle - (obj.data.player.playerFov / 2);
+        float angle = objdata.playerFov * i / steps + gs.playerAngle - (objdata.playerFov / 2);
         float rad = angle * 3.14159265 / 180;
 
         int targetX = cos(rad) * playerVision + cx;
         int targetY = sin(rad) * playerVision + cy;
-        CastVisionRay(cx, cy, targetX, targetY, gs);
+        CastVisionRay(cx, cy, targetX, targetY, gs, state);
     }
 
     //player centre always visible
-    if(cy >= 0 && cy < FOG_ROWS && cx >= 0 && cx < FOG_COLS)
+    if (cy >= 0 && cy < FOG_ROWS && cx >= 0 && cx < FOG_COLS) {
         gs.fogGrid[cy][cx] = FogState::Visible;
+        SDL_RenderPoint(state.renderer, cx - gs.mapViewport.x, cy - gs.mapViewport.y);
+    }
 }
