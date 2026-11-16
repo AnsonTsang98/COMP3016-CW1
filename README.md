@@ -46,8 +46,8 @@ You explore a dark infected facility with a flashlight, shoot zombies, find the 
 
 ### Option B: build from source (Visual Studio 2022)
 1. Open the solution, choose **Release / x64**.
-2. [Click here](https://github.com/libsdl-org/SDL/releases#:~:text=SDL3%2Ddevel%2D3.4.18%2DVC.zip) download and unzip `SDL3-devel-3.4.18-VC.zip` to your `C://`, and rename it to `SDL3`.
-3. SDL3 is referenced in *Project > Properties > VC++ Directories* (Include = `C://SDL3/include`, Library = `C://SDL3/lib/x64`) and `SDL3.lib` is linked.
+2. [Click here](https://github.com/libsdl-org/SDL/releases#:~:text=SDL3%2Ddevel%2D3.4.18%2DVC.zip) download and unzip `SDL3-devel-3.4.18-VC.zip` to your `C://Users/Public`, and rename it to `SDL3`.
+3. SDL3 is referenced in *Project > Properties > VC++ Directories* (Include = `C://Users/Public/SDL3/include`, Library = `C://Users/Public/SDL3/lib/x64`) and `SDL3.lib` is linked.
 4. Build. Copy `SDL3.dll` and the `Assets` folder next to the `.exe` (the game loads files from the folder of the exe with `SDL_GetBasePath()`).
 5. The save file `save.json` is created in the folder the game is started from.
 
